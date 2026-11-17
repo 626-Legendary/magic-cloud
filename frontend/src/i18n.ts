@@ -32,23 +32,23 @@ const en: Record<string, string> = {
   share_not_revoked: "Revoke this share before deleting its record.",
   pageNotFoundTitle: "This page wandered off",
   pageNotFoundHint:
-    "Maiji couldn’t find this page. Check the address, or head back to your cloud home.",
+    "Magi couldn’t find this page. Check the address, or head back to your cloud home.",
   returnHome: "Back to home",
-  mascotAlt: "Maiji, the Magic Cloud penguin",
+  mascotAlt: "Magi, the Magic Cloud penguin",
   heroDescription:
-    "Photos, videos, and work files — Maiji keeps them all neatly tucked away.",
-  heroSupport: "Upload, organize, and share. Leave it to Maiji.",
+    "Photos, videos, and work files — Magi keeps them all neatly tucked away.",
+  heroSupport: "Upload, organize, and share. Leave it to Magi.",
   productBrand: "Magic Cloud",
   productTagline: "A little penguin, guarding your digital home.",
-  productLead: "Maiji keeps an eye on every file.",
+  productLead: "Magi keeps an eye on every file.",
   productIntro:
     "Magic Cloud is a lightweight, simple, and easy-to-use private cloud file manager. Build your own little cloud home on a device you control.",
   productCare:
-    "Photos, documents, and work files are in good company with Maiji. Everything has its place, and precious memories stay close. Whenever you return, the door is open.",
+    "Photos, documents, and work files are in good company with Magi. Everything has its place, and precious memories stay close. Whenever you return, the door is open.",
   productEase:
-    "No complicated routines. Maiji has the everyday details covered.",
+    "No complicated routines. Magi has the everyday details covered.",
   productClosing:
-    "Head out and do your thing. Maiji stays home, looking after every precious digital memory.",
+    "Head out and do your thing. Magi stays home, looking after every precious digital memory.",
   about: "About Magic Cloud",
   trashEmpty: "All clean. Nothing here.",
   searchEmpty: "No matching files. Try a different keyword.",

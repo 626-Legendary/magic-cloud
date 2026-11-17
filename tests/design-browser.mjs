@@ -356,7 +356,7 @@ try {
     .waitFor();
   assert.equal(
     await p.locator(".empty img").getAttribute("alt"),
-    "Maiji, the Magic Cloud penguin",
+    "Magi, the Magic Cloud penguin",
   );
   await p.goto(base + "/trash");
   await p
