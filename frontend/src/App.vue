@@ -13,6 +13,8 @@ import {
   Search,
   Upload as UploadIcon,
   FolderPlus,
+  FolderUp,
+  Languages,
   Grid2X2,
   List,
   ChevronRight,
@@ -79,7 +81,7 @@ const nodes = ref<Node[]>([]),
 const search = ref(""),
   sort = ref("name"),
   desc = ref(false),
-  grid = ref(localStorage.getItem("mc-grid") === "true"),
+  grid = ref(localStorage.getItem("mc-grid") !== "false"),
   menu = ref(""),
   drop = ref(false),
   fileInput = ref<HTMLInputElement>(),
@@ -681,8 +683,12 @@ onUnmounted(() => {
       <a href="/"
         ><img src="/Logo.png" alt="" /><b>{{ t("brand") }}</b></a
       ><span><ShieldCheck :size="16" />{{ t("readOnly") }}</span
-      ><button @click="locale = locale === 'zh' ? 'en' : 'zh'">
-        {{ locale === "zh" ? "EN" : "中文" }}
+      ><button
+        :aria-label="t('language')"
+        :title="t('language')"
+        @click="locale = locale === 'zh' ? 'en' : 'zh'"
+      >
+        <Languages :size="18" />
       </button>
     </header>
     <div v-if="error" role="alert" class="notice error">
@@ -735,8 +741,12 @@ onUnmounted(() => {
   </main>
   <main v-else-if="!authenticated" class="login-page">
     <div class="login-controls">
-      <button @click="locale = locale === 'zh' ? 'en' : 'zh'">
-        {{ locale === "zh" ? "EN" : "中文" }}</button
+      <button
+        :aria-label="t('language')"
+        :title="t('language')"
+        @click="locale = locale === 'zh' ? 'en' : 'zh'"
+      >
+        <Languages :size="18" /></button
       ><button
         :aria-label="t('appearance')"
         @click="theme = theme === 'dark' ? 'light' : 'dark'"
@@ -758,8 +768,7 @@ onUnmounted(() => {
         <span class="eyebrow">YOUR PERSONAL CLOUD</span>
         <h2>{{ t("login") }}</h2>
         <p class="muted">{{ t("welcome") }}</p>
-        <label for="password">{{ t("password") }}</label
-        ><input
+        <label for="password">{{ t("password") }}</label><input
           id="password"
           v-model="password"
           type="password"
@@ -845,8 +854,12 @@ onUnmounted(() => {
               :is="theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor"
               :size="18"
             /></button
-          ><button @click="locale = locale === 'zh' ? 'en' : 'zh'">
-            {{ locale === "zh" ? "EN" : "中文" }}</button
+          ><button
+            :aria-label="t('language')"
+            :title="t('language')"
+            @click="locale = locale === 'zh' ? 'en' : 'zh'"
+          >
+            <Languages :size="18" /></button
           ><button :aria-label="t('logout')" @click="signOut">
             <LogOut :size="18" />
           </button>
@@ -916,6 +929,12 @@ onUnmounted(() => {
             >
               <UploadIcon :size="18" />{{ t("upload") }}</button
             ><button
+              v-if="view === 'files'"
+              class="folder-upload-button"
+              @click="folderInput?.click()"
+            >
+              <FolderUp :size="18" />{{ t("uploadFolder") }}</button
+            ><button
               v-if="view === 'trash' && trashRows.length"
               class="danger"
               @click="emptyTrash"
@@ -938,13 +957,7 @@ onUnmounted(() => {
               }}
             </div>
             <div class="toolbar-right">
-              <button
-                v-if="view === 'files'"
-                class="text-button"
-                @click="folderInput?.click()"
-              >
-                {{ t("uploadFolder") }}</button
-              ><select v-model="sort" :aria-label="t('type')">
+              <select v-model="sort" :aria-label="t('type')">
                 <option value="name">{{ t("name") }}</option>
                 <option value="size">{{ t("size") }}</option>
                 <option value="type">{{ t("type") }}</option>
@@ -988,8 +1001,7 @@ onUnmounted(() => {
           </div>
           <div v-else :class="grid ? 'file-grid' : 'file-list'">
             <div v-if="!grid" class="list-head">
-              <span>{{ t("name") }}</span
-              ><span>{{ t("size") }}</span
+              <span>{{ t("name") }}</span><span>{{ t("size") }}</span
               ><span>{{ t("modified") }}</span
               ><span></span>
             </div>
@@ -1059,8 +1071,7 @@ onUnmounted(() => {
           <article v-for="s in shareRows" :key="s.id" class="data-row">
             <div class="row-icon"><Link :size="22" /></div>
             <div class="grow">
-              <strong>{{ s.name || t("home") }}</strong
-              ><small>{{
+              <strong>{{ s.name || t("home") }}</strong><small>{{
                 s.revoked
                   ? t("revoked")
                   : s.expires
@@ -1088,8 +1099,9 @@ onUnmounted(() => {
           <article v-for="n in trashRows" :key="n.id" class="data-row">
             <component :is="icon(n)" :size="26" :class="kindClass(n)" />
             <div class="grow">
-              <strong>{{ n.name }}</strong
-              ><small>{{ date(n.deleted_at) }} · {{ bytes(n.size) }}</small>
+              <strong>{{ n.name }}</strong><small
+                >{{ date(n.deleted_at) }} · {{ bytes(n.size) }}</small
+              >
             </div>
             <button @click="restoreNode(n)">
               <RotateCcw :size="16" />{{ t("restore") }}</button
@@ -1106,15 +1118,13 @@ onUnmounted(() => {
           <section class="panel">
             <h2><Sun :size="20" />{{ t("appearance") }}</h2>
             <div class="setting-row">
-              <label>{{ t("language") }}</label
-              ><select v-model="locale">
+              <label>{{ t("language") }}</label><select v-model="locale">
                 <option value="zh">简体中文</option>
                 <option value="en">English</option>
               </select>
             </div>
             <div class="setting-row">
-              <label>{{ t("appearance") }}</label
-              ><select v-model="theme">
+              <label>{{ t("appearance") }}</label><select v-model="theme">
                 <option value="light">{{ t("light") }}</option>
                 <option value="dark">{{ t("dark") }}</option>
                 <option value="system">{{ t("system") }}</option>
@@ -1165,13 +1175,11 @@ onUnmounted(() => {
             <h2><ShieldCheck :size="20" />{{ t("loginLogs") }}</h2>
             <div class="audit-table">
               <div class="audit-row">
-                <strong>{{ t("time") }}</strong
-                ><strong>{{ t("ip") }}</strong
+                <strong>{{ t("time") }}</strong><strong>{{ t("ip") }}</strong
                 ><strong>{{ t("login") }}</strong>
               </div>
               <div v-for="(l, i) in logs" :key="i" class="audit-row">
-                <span>{{ date(l.time) }}</span
-                ><span>{{ l.ip }}</span
+                <span>{{ date(l.time) }}</span><span>{{ l.ip }}</span
                 ><span :class="l.success ? 'success-text' : 'danger-text'">{{
                   t(l.success ? "success" : "failure")
                 }}</span>
@@ -1314,8 +1322,8 @@ onUnmounted(() => {
         :aria-label="modalTitle"
       />
       <div class="dialog-actions">
-        <button type="button" @click="answer(null)">{{ t("cancel") }}</button
-        ><button
+        <button type="button" @click="answer(null)">
+          {{ t("cancel") }}</button><button
           v-for="choice in modalChoices"
           :key="choice.value"
           type="button"
@@ -1369,8 +1377,12 @@ onUnmounted(() => {
       </button>
     </div>
     <div class="dialog-actions">
-      <button @click="moveDialog?.close()">{{ t("cancel") }}</button
-      ><button class="primary" @click="finishMove">{{ t("useFolder") }}</button>
+      <button @click="moveDialog?.close()">{{ t("cancel") }}</button><button
+        class="primary"
+        @click="finishMove"
+      >
+        {{ t("useFolder") }}
+      </button>
     </div>
   </dialog>
   <dialog
