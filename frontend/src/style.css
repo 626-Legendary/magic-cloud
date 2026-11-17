@@ -425,14 +425,6 @@ a {
   font-weight: 700;
   letter-spacing: -0.4px;
 }
-.brand small {
-  display: block;
-  font-size: var(--mc-font-caption);
-  letter-spacing: 1.3px;
-  color: var(--muted);
-  font-weight: 500;
-  margin-top: var(--mc-space-1);
-}
 .nav-label {
   font-size: var(--mc-font-caption);
   color: var(--muted);

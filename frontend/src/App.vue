@@ -1175,9 +1175,7 @@ onUnmounted(() => {
         <X aria-hidden="true" :size="20" />
       </button>
       <a class="brand" href="/" @click.prevent="router.push('/files/root')"
-        ><img src="/Logo.png" alt="" /><span
-          >{{ t("brand") }}<small>YOUR PERSONAL CLOUD</small></span
-        ></a
+        ><img src="/Logo.png" alt="" /><span>{{ t("brand") }}</span></a
       ><span class="nav-label">{{
         locale === "zh" ? "我的空间" : "WORKSPACE"
       }}</span>
