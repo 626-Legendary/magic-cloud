@@ -965,16 +965,7 @@ async fn audit(State(a): State<App>) -> Result<Json<Vec<Value>>> {
     a.run(|c|Ok(Json(c.db.prepare("SELECT time,success,ip,category FROM login_audit ORDER BY id DESC LIMIT ?1")?.query_map([core::LOGIN_AUDIT_KEEP],|r|Ok(json!({"time":r.get::<_,i64>(0)?,"success":r.get::<_,bool>(1)?,"ip":r.get::<_,String>(2)?,"category":r.get::<_,String>(3)?})))?.collect::<std::result::Result<Vec<_>,_>>()?))).await
 }
 async fn backups(State(a): State<App>) -> Result<Json<Vec<String>>> {
-    a.run(|c| {
-        let mut ns = std::fs::read_dir(format!("{}/.magic-cloud/backups", c.storage.path))?
-            .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-            .filter(|n| n.ends_with(".db"))
-            .collect::<Vec<_>>();
-        ns.sort();
-        ns.reverse();
-        Ok(Json(ns))
-    })
-    .await
+    a.run(|c| Ok(Json(c.backup_names()?))).await
 }
 async fn backup(State(a): State<App>) -> Result<Json<Value>> {
     a.run(|c| Ok(Json(json!({"name":c.backup()?})))).await
@@ -1192,18 +1183,7 @@ async fn start() -> Result<()> {
                     c.maintain()?;
                     if backup_due {
                         c.backup()?;
-                        let mut files =
-                            std::fs::read_dir(format!("{}/.magic-cloud/backups", c.storage.path))?
-                                .filter_map(|x| {
-                                    x.ok().and_then(|e| e.file_name().into_string().ok())
-                                })
-                                .filter(|s| s.ends_with(".db"))
-                                .collect::<Vec<_>>();
-                        files.sort();
-                        let remove = files.len().saturating_sub(backup_keep);
-                        for name in files.into_iter().take(remove) {
-                            c.storage.remove(&format!(".magic-cloud/backups/{name}"))?;
-                        }
+                        c.prune_backups(backup_keep)?;
                     }
                     Ok(())
                 })

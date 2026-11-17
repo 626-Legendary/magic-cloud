@@ -694,7 +694,12 @@ impl Core {
         Ok(n)
     }
     pub fn backup(&self) -> Result<String> {
-        let n = format!("{}-{}.db", now(), id());
+        let timestamp: String = self.db.query_row(
+            "SELECT strftime('%Y-%m-%d_%H-%M-%S', ?1, 'unixepoch')",
+            [now()],
+            |r| r.get(0),
+        )?;
+        let n = format!("magic-cloud-{timestamp}Z-{}.db", id());
         let p = format!("{}/.magic-cloud/backups/{n}", self.storage.path);
         let mut dst = Connection::open(p)?;
         rusqlite::backup::Backup::new(&self.db, &mut dst)?.run_to_completion(
@@ -709,6 +714,44 @@ impl Core {
             .file(".magic-cloud/backups", libc::O_RDONLY | libc::O_DIRECTORY)?
             .sync_all()?;
         Ok(n)
+    }
+    pub fn backup_names(&self) -> Result<Vec<String>> {
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(format!("{}/.magic-cloud/backups", self.storage.path))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            if !name.ends_with(".db") {
+                continue;
+            }
+            let timestamp = if let Some(stamp) = name.strip_prefix("magic-cloud-") {
+                if stamp.is_ascii() && stamp.get(19..21) == Some("Z-") {
+                    let date = format!("{}T{}Z", &stamp[..10], stamp[11..19].replace('-', ":"));
+                    self.db.query_row("SELECT unixepoch(?1)", [date], |r| {
+                        r.get::<_, Option<i64>>(0)
+                    })?
+                } else {
+                    None
+                }
+            } else {
+                name.split('-').next().and_then(|v| v.parse::<i64>().ok())
+            }
+            .unwrap_or(entry.metadata()?.mtime());
+            entries.push((timestamp, name));
+        }
+        entries.sort_by(|a, b| b.cmp(a));
+        Ok(entries.into_iter().map(|(_, name)| name).collect())
+    }
+    pub fn prune_backups(&self, keep: usize) -> Result<()> {
+        for name in self.backup_names()?.into_iter().skip(keep.max(1)) {
+            self.storage
+                .remove(&format!(".magic-cloud/backups/{name}"))?;
+        }
+        Ok(())
     }
     pub fn restore(&mut self, id: &str, parent: Option<&str>, strategy: &str) -> Result<Node> {
         let mut n = self.node(id)?;

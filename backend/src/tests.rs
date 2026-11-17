@@ -1414,3 +1414,58 @@ fn login_audit_trims_existing_history_on_startup_and_keeps_latest_fifty() {
         "successful-login"
     );
 }
+
+#[test]
+fn backup_names_include_readable_utc_time_and_remain_unique() {
+    let f = Fixture::new();
+    let c = f.core();
+    let before = now();
+    let first = c.backup().unwrap();
+    let second = c.backup().unwrap();
+    let after = now();
+    assert_ne!(first, second);
+    for name in [&first, &second] {
+        let suffix = name.strip_prefix("magic-cloud-").unwrap();
+        assert_eq!(suffix.get(19..21), Some("Z-"));
+        assert!(suffix.ends_with(".db"));
+        assert!(uuid::Uuid::parse_str(&suffix[21..suffix.len() - 3]).is_ok());
+        let date = format!("{}T{}Z", &suffix[..10], suffix[11..19].replace('-', ":"));
+        let timestamp: i64 =
+            c.db.query_row("SELECT unixepoch(?1)", [date], |r| r.get(0))
+                .unwrap();
+        assert!((before..=after).contains(&timestamp));
+        let db = rusqlite::Connection::open(f.dir.path().join(".magic-cloud/backups").join(name))
+            .unwrap();
+        assert_eq!(
+            db.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+    }
+}
+
+#[test]
+fn mixed_backup_formats_are_sorted_and_pruned_by_time() {
+    let f = Fixture::new();
+    let c = f.core();
+    let directory = f.dir.path().join(".magic-cloud/backups");
+    let oldest = "978307200-legacy.db"; // 2001-01-01 UTC
+    let middle = "magic-cloud-2020-01-01_00-00-00Z-middle.db";
+    let newest = "1893456000-legacy-newer.db"; // 2030-01-01 UTC
+    for name in [middle, newest, oldest] {
+        fs::write(directory.join(name), b"fixture").unwrap();
+    }
+    fs::write(directory.join("keep.txt"), b"not a backup").unwrap();
+    symlink(directory.join(oldest), directory.join("linked.db")).unwrap();
+    assert_eq!(c.backup_names().unwrap(), vec![newest, middle, oldest]);
+    c.prune_backups(2).unwrap();
+    assert_eq!(c.backup_names().unwrap(), vec![newest, middle]);
+    assert!(!directory.join(oldest).exists());
+    assert!(directory.join("keep.txt").exists());
+    assert!(
+        fs::symlink_metadata(directory.join("linked.db"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
