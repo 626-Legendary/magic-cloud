@@ -47,15 +47,10 @@ try {
   await p.getByLabel("访问密码", { exact: true }).fill(password);
   await p.getByRole("button", { name: "进入", exact: true }).click();
   await p.locator(".app-shell").waitFor();
-  await p.locator(".file-grid > .upload-dropzone").waitFor();
-  assert.equal(
-    await p
-      .locator(".file-grid")
-      .evaluate((e) =>
-        e.firstElementChild.classList.contains("upload-dropzone"),
-      ),
-    true,
-  );
+  await p
+    .getByRole("heading", { name: "这里还是空空的，上传第一份文件吧！" })
+    .waitFor();
+  assert.equal(await p.locator(".upload-dropzone").count(), 0);
   await p.getByRole("button", { name: "新建文件夹", exact: true }).click();
   assert(
     (await p.getByRole("dialog").ariaSnapshot()).includes(
@@ -83,9 +78,14 @@ try {
     await hold;
     await r.continue();
   });
+  await p
+    .locator(".heading-actions")
+    .getByRole("button", { name: "上传", exact: true })
+    .click();
   const chooser = p.waitForEvent("filechooser");
   await p
-    .getByRole("button", { name: "拖拽文件到此处，或点击上传", exact: true })
+    .getByRole("dialog")
+    .getByRole("button", { name: "上传文件", exact: true })
     .click();
   await (
     await chooser
@@ -119,10 +119,7 @@ try {
   await started;
   await p.locator(".transfer-title").click();
   await p.locator(".transfer-panel .meter[role=progressbar]").first().waitFor();
-  assert.equal(
-    await p.locator(".upload-dropzone [role=progressbar]").count(),
-    1,
-  );
+  assert.equal(await p.locator(".upload-dropzone").count(), 0);
   release();
   await p.waitForFunction(
     () => document.querySelectorAll(".file-item").length === 6,
@@ -373,7 +370,7 @@ try {
     JSON.stringify(result, null, 2),
   );
   console.log(
-    "PASS real upload/dropzone/progress, categories, selection, list geometry, search, dialogs/menu keyboard/focus return, labeled settings, dark contrast, 320px drawer trap/Escape/inert, empty states, reduced motion",
+    "PASS real upload drawer/progress, categories, selection, list geometry, search, dialogs/menu keyboard/focus return, labeled settings, dark contrast, 320px drawer trap/Escape/inert, empty states, reduced motion",
   );
 } finally {
   await c.close();

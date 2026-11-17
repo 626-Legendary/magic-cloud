@@ -261,18 +261,16 @@ const active = computed(
     transfer.tasks.filter((x) => !["complete", "cancelled"].includes(x.status))
       .length,
 );
-const uploadProgress = computed(() => {
-  const tasks = transfer.tasks.filter(
-    (x) => !["complete", "cancelled"].includes(x.status),
-  );
-  const total = tasks.reduce((sum, x) => sum + x.size, 0);
-  return total
-    ? Math.min(
-        100,
-        Math.floor((tasks.reduce((sum, x) => sum + x.done, 0) / total) * 100),
-      )
-    : 0;
-});
+const uploadDialog = ref<HTMLDialogElement>();
+const uploadMenuOpen = ref(false);
+function openUploadMenu() {
+  openDialog(uploadDialog.value);
+  uploadMenuOpen.value = true;
+}
+function chooseUploadTarget(target: "files" | "folder") {
+  uploadDialog.value?.close();
+  (target === "files" ? fileInput.value : folderInput.value)?.click();
+}
 const modal = ref<HTMLDialogElement>(),
   modalTitle = ref(""),
   modalHint = ref(""),
@@ -1006,6 +1004,7 @@ watch(
 watch(
   () => route.fullPath,
   () => {
+    uploadDialog.value?.close();
     selectedIds.value = new Set();
     search.value = "";
     void load();
@@ -1487,19 +1486,13 @@ onUnmounted(() => {
             ><button
               v-if="view === 'files'"
               class="primary"
-              @click="fileInput?.click()"
+              aria-haspopup="dialog"
+              aria-controls="upload-actions-dialog"
+              :aria-expanded="uploadMenuOpen"
+              @click="openUploadMenu"
             >
-              <UploadIcon aria-hidden="true" :size="20" />{{
-                t("upload")
-              }}</button
-            ><button
-              v-if="view === 'files'"
-              class="folder-upload-button"
-              @click="folderInput?.click()"
-            >
-              <FolderUp aria-hidden="true" :size="20" />{{
-                t("uploadFolder")
-              }}</button
+              <UploadIcon aria-hidden="true" :size="20" />{{ t("upload")
+              }}<ChevronDown aria-hidden="true" :size="16" /></button
             ><button
               v-if="view === 'trash' && trashRows.length"
               class="danger"
@@ -1581,10 +1574,7 @@ onUnmounted(() => {
           </div>
 
           <div v-if="loading" class="empty"><span class="spinner"></span></div>
-          <div
-            v-else-if="!nodes.length && (view !== 'files' || !!search)"
-            class="empty"
-          >
+          <div v-else-if="!nodes.length" class="empty">
             <div class="empty-orbit">
               <img src="/Logo.png" :alt="t('mascotAlt')" />
             </div>
@@ -1603,7 +1593,10 @@ onUnmounted(() => {
             <button
               v-if="view === 'files' && !search"
               class="primary"
-              @click="fileInput?.click()"
+              aria-haspopup="dialog"
+              aria-controls="upload-actions-dialog"
+              :aria-expanded="uploadMenuOpen"
+              @click="openUploadMenu"
             >
               <UploadIcon aria-hidden="true" :size="20" />{{ t("upload") }}
             </button>
@@ -1622,26 +1615,6 @@ onUnmounted(() => {
               ><span>{{ t("modified") }}</span
               ><span></span>
             </div>
-            <button
-              v-if="view === 'files' && !search"
-              class="upload-dropzone"
-              :class="{ dragging: drop }"
-              @click="fileInput?.click()"
-            >
-              <UploadIcon aria-hidden="true" :size="24" />
-              <span>{{ active ? t("uploading") : t("dropzoneHint") }}</span>
-              <span
-                v-if="active"
-                class="dropzone-progress meter"
-                role="progressbar"
-                :aria-label="t('transfers')"
-                :aria-valuenow="uploadProgress"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                ><i :style="{ width: uploadProgress + '%' }"></i
-              ></span>
-              <small v-if="active">{{ uploadProgress }}%</small>
-            </button>
             <article
               v-for="n in nodes"
               :key="n.id"
@@ -1742,7 +1715,11 @@ onUnmounted(() => {
             </article>
           </div>
         </template>
-        <section v-else-if="view === 'shares'" class="panel">
+        <section
+          v-else-if="view === 'shares'"
+          class="panel"
+          :class="{ 'empty-state-panel': !shareRows.length }"
+        >
           <div v-if="!shareRows.length" class="empty">
             <div class="empty-orbit">
               <img src="/Logo.png" :alt="t('mascotAlt')" />
@@ -1779,7 +1756,11 @@ onUnmounted(() => {
             </button>
           </article>
         </section>
-        <section v-else-if="view === 'trash'" class="panel">
+        <section
+          v-else-if="view === 'trash'"
+          class="panel"
+          :class="{ 'empty-state-panel': !trashRows.length }"
+        >
           <div v-if="!trashRows.length" class="empty">
             <div class="empty-orbit">
               <img src="/Logo.png" :alt="t('mascotAlt')" />
@@ -1865,7 +1846,7 @@ onUnmounted(() => {
             >
           </section>
           <section class="panel full about-panel">
-            <h2><Cloud aria-hidden="true" :size="20" />{{ t("about") }}</h2>
+            <h2>{{ t("about") }}</h2>
             <div class="about-brand">
               <img src="/Logo.png" alt="" />
               <div>
@@ -2103,6 +2084,50 @@ onUnmounted(() => {
       </button>
     </div>
   </Teleport>
+  <dialog
+    id="upload-actions-dialog"
+    ref="uploadDialog"
+    class="dialog upload-drawer"
+    aria-labelledby="upload-drawer-title"
+    aria-describedby="upload-drawer-description"
+    @close="
+      uploadMenuOpen = false;
+      restoreDialogFocus($event);
+    "
+  >
+    <div class="dialog-heading">
+      <h2 id="upload-drawer-title">{{ t("chooseUpload") }}</h2>
+      <button
+        class="icon-button"
+        :aria-label="t('close')"
+        @click="uploadDialog?.close()"
+      >
+        <X aria-hidden="true" :size="20" />
+      </button>
+    </div>
+    <p id="upload-drawer-description">{{ t("chooseUploadHint") }}</p>
+    <div class="upload-choices">
+      <button
+        autofocus
+        :aria-label="t('uploadFiles')"
+        @click="chooseUploadTarget('files')"
+      >
+        <UploadIcon aria-hidden="true" :size="24" /><span
+          ><strong>{{ t("uploadFiles") }}</strong
+          ><small>{{ t("uploadFilesHint") }}</small></span
+        ><ChevronRight aria-hidden="true" :size="20" />
+      </button>
+      <button
+        :aria-label="t('uploadFolder')"
+        @click="chooseUploadTarget('folder')"
+      >
+        <FolderUp aria-hidden="true" :size="24" /><span
+          ><strong>{{ t("uploadFolder") }}</strong
+          ><small>{{ t("uploadFolderHint") }}</small></span
+        ><ChevronRight aria-hidden="true" :size="20" />
+      </button>
+    </div>
+  </dialog>
   <dialog
     ref="logoutDialog"
     class="dialog"
