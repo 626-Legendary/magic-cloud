@@ -22,3 +22,13 @@
 浏览器测试发现并修复了 SPA 深层链接的 HTTP 状态问题，已加入 Rust 回归测试。断点恢复、覆盖中断、身份隔离等由自动化集成测试验证；不将模拟测试视为真实拔盘/断电验收。
 
 尚未验证：真实 USB 拔插/重挂自动恢复、真实断电、10 GB 文件的完整传输压力、Cloudflare 实际域名上的大文件下载及适用条款。需按 acceptance.md 在专用测试盘和实际 Tunnel 环境中执行。当前没有填入生产凭据、修改宿主机挂载/systemd 配置或启动生产 Tunnel。
+
+## 2026-11-17 默认端口调整
+
+默认端口已统一为 5080：Rust、Docker 镜像 ENV/EXPOSE、Compose、开发代理及文档一致；本地 `.env` 同步更新，未提交秘密。检查覆盖仓库中唯一的 Dockerfile、compose.yaml 和 .dockerignore，补充环境备份文件及测试产物的构建上下文排除规则。
+
+- 示例配置和本地配置的 `docker compose config --quiet` 均通过。
+- `docker build -t magic-cloud:local .` 在 ARM64 上构建成功，包含 Vue/TypeScript 生产构建。
+- 使用隔离 Docker volume 和 `--network none` 测试镜像，主动取消 PORT 环境变量后，`http://127.0.0.1:5080/health/ready` 返回 `ok`，验证 Rust 默认端口；旧端口未监听。
+- 镜像 EXPOSE 为 5080/tcp；Compose 实际端口为 5080，健康检查跟随 PORT，存储绑定禁止自动创建源目录。
+- 测试容器与 volume 已清理，未启动生产 Tunnel 或修改真实 USB 数据。

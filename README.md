@@ -32,7 +32,7 @@
    ```
 
    Rust 默认两路编译；内存不足可执行 `docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud` 后 `docker compose up -d`。
-6. 在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:8080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。无需对宿主机发布应用端口。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
+6. 在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:5080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。无需对宿主机发布应用端口。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
 7. 安装 USB 恢复监控：将 `deploy/systemd/` 中两个文件复制到 `/etc/systemd/system/`，把 service 的 `ExecStart` 改为仓库实际绝对路径，然后：
 
    ```bash

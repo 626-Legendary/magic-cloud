@@ -9,3 +9,8 @@ Magic_Cloud_v1.0.md
 **/node_modules
 **/target
 **/dist
+.env.*
+!.env.example
+.scratch-smoke
+**/__pycache__
+**/*.tsbuildinfo

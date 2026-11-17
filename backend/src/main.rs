@@ -1050,7 +1050,7 @@ async fn start() -> Result<()> {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
-    let port = std::env::var("PORT").unwrap_or("8080".into());
+    let port = std::env::var("PORT").unwrap_or("5080".into());
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     eprintln!("Magic Cloud ready");
     axum::serve(

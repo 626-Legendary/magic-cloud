@@ -17,6 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=backend /magic-cloud /app/magic-cloud
 COPY --from=frontend /src/dist /app/public
 USER 10001:10001
-ENV STATIC_DIR=/app/public STORAGE_ROOT=/data PORT=8080
-EXPOSE 8080
+ENV STATIC_DIR=/app/public STORAGE_ROOT=/data PORT=5080
+EXPOSE 5080
 ENTRYPOINT ["/app/magic-cloud"]
