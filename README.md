@@ -8,7 +8,7 @@
 
 以下操作在你的 Pi 上执行。不要使用承载系统或其他应用数据的磁盘做拔盘测试。
 
-1. 将仓库放在固定位置，例如 `/opt/magic-cloud`。`cp .env.example .env`，执行 `chmod 600 .env`。设置至少 12 字节的独立 `APP_PASSWORD`、至少 32 字符随机 `SESSION_SECRET`、准确的 HTTPS `APP_ORIGIN`（不含末尾 `/`）和 Tunnel Token。可用 `openssl rand -hex 32` 本地生成密钥，不上传 `.env`。
+1. 将仓库放在固定位置，例如 `/opt/magic-cloud`。`cp .env.example .env`，执行 `chmod 600 .env`。设置至少 12 字节的独立 `APP_PASSWORD`、至少 32 字符随机 `SESSION_SECRET`、准确的 HTTPS `APP_ORIGIN`（不含末尾 `/`）和完整的 Tunnel Token（不是 Tunnel ID/UUID）。可用 `openssl rand -hex 32` 本地生成密钥，不上传 `.env`。
 2. 使用 `lsblk -f` 确认**已格式化为 ext4**的 USB 文件系统 UUID，将其及固定挂载点填入 `STORAGE_UUID`、`STORAGE_MOUNT`。脚本不会格式化磁盘。配置值使用不带引号的普通文本；含 `$` 的 Compose 值按 Compose 规则写为 `$$`。避免密码含空白、引号、`#` 或 `$`，可直接使用随机十六进制字符。
 3. 挂载并显式初始化新的存储布局：
 
@@ -32,7 +32,9 @@
    ```
 
    Rust 默认两路编译；内存不足可执行 `docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud` 后 `docker compose up -d`。
-6. 在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:5080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。无需对宿主机发布应用端口。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
+6. 在 Cloudflare Tunnel 的连接器安装页面选择 Docker，复制安装命令 `--token` 后面的完整值，填入 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN`。仅填写 Tunnel ID（UUID）不能用于此启动方式。Compose 按 `tunnel --no-autoupdate run --token ...` 启动连接器；不要公开粘贴解析后的 Compose 配置，因为其中包含 Token。
+
+   在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:5080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。无需对宿主机发布应用端口。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
 7. 安装 USB 恢复监控：将 `deploy/systemd/` 中两个文件复制到 `/etc/systemd/system/`，把 service 的 `ExecStart` 改为仓库实际绝对路径，然后：
 
    ```bash
