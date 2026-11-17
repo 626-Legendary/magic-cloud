@@ -94,9 +94,7 @@ const search = ref(""),
   folderInput = ref<HTMLInputElement>(),
   recoverInput = ref<HTMLInputElement>(),
   recoverTask = ref<Task>();
-const view = computed(() =>
-  route.path.startsWith("/s/") ? "public" : route.path.split("/")[1] || "files",
-);
+const view = computed(() => String(route.name || "files"));
 const parent = computed(() => String(route.params.id || "root"));
 const nav = [
   { key: "files", icon: Cloud, path: "/files/root" },
@@ -171,6 +169,7 @@ async function load() {
   menu.value = "";
   sidebar.value = false;
   try {
+    if (view.value === "not-found") return;
     if (view.value === "public") {
       publicData.value = null;
       publicError.value = null;
@@ -652,6 +651,16 @@ watch([sort, desc], () => void load());
 watch(grid, () => localStorage.setItem("mc-grid", String(grid.value)));
 watch([locale, theme], applyPreferences);
 watch(
+  [view, locale],
+  () => {
+    document.title =
+      view.value === "not-found"
+        ? `404 · ${t("pageNotFoundTitle")} · Magic Cloud`
+        : "Magic Cloud · 麦吉云";
+  },
+  { immediate: true },
+);
+watch(
   () => route.fullPath,
   () => {
     search.value = "";
@@ -695,7 +704,50 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="checking" class="boot">
+  <main v-if="view === 'not-found'" class="not-found-page">
+    <header class="not-found-header">
+      <RouterLink to="/" class="not-found-brand">
+        <img src="/Logo.png" alt="" width="48" height="48" />
+        <strong>{{ t("brand") }}</strong>
+      </RouterLink>
+      <div>
+        <button
+          class="icon-button"
+          :aria-label="t('language')"
+          @click="locale = locale === 'zh' ? 'en' : 'zh'"
+        >
+          <Languages :size="20" />
+        </button>
+        <button
+          class="icon-button"
+          :aria-label="t('appearance')"
+          @click="theme = theme === 'dark' ? 'light' : 'dark'"
+        >
+          <Sun v-if="theme === 'dark'" :size="20" /><Moon v-else :size="20" />
+        </button>
+      </div>
+    </header>
+    <section class="not-found-card" aria-labelledby="not-found-title">
+      <img
+        class="not-found-mascot"
+        src="/Logo.png"
+        :alt="t('mascotAlt')"
+        width="144"
+        height="144"
+      />
+      <span class="not-found-code">404</span>
+      <h1 id="not-found-title">{{ t("pageNotFoundTitle") }}</h1>
+      <p>{{ t("pageNotFoundHint") }}</p>
+      <RouterLink to="/" class="button primary"
+        ><ArrowLeft :size="20" />{{ t("returnHome") }}</RouterLink
+      >
+    </section>
+    <footer class="not-found-footer">
+      © {{ currentYear }} Zexiang Zhang. All rights reserved.<br />Magic Cloud
+      v{{ appVersion }}
+    </footer>
+  </main>
+  <div v-else-if="checking" class="boot">
     <img src="/Logo.png" alt="Magic Cloud" /><span class="spinner"></span>
   </div>
   <main v-else-if="view === 'public'" class="public-page">

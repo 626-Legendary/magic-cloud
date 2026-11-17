@@ -187,6 +187,7 @@ async fn security(State(a): State<App>, req: Request, next: Next) -> Response {
         Err(e) => e.into_response(),
     };
     if response.status().is_client_error()
+        && response.extensions().get::<PageNotFound>().is_none()
         && !response
             .headers()
             .get("content-type")
@@ -973,7 +974,40 @@ async fn backup_download(
         .await?;
     send_file(f, out, h, false).await
 }
+fn is_page_route(path: &str) -> bool {
+    if path == "/" {
+        return true;
+    }
+    let path = path.strip_suffix('/').unwrap_or(path);
+    if matches!(path, "/recent" | "/shares" | "/trash" | "/settings") {
+        return true;
+    }
+    let parts: Vec<_> = path.split('/').collect();
+    matches!(parts.as_slice(), ["", "files" | "s", value] if !value.is_empty())
+}
+#[derive(Clone)]
+struct PageNotFound;
+async fn page_status(mut req: Request, next: Next) -> Response {
+    let known = is_page_route(req.uri().path());
+    if !known {
+        // Unknown pages must return a complete 404 document, never 206 or 304.
+        for name in ["range", "if-range", "if-none-match", "if-modified-since"] {
+            req.headers_mut().remove(name);
+        }
+    }
+    let mut response = next.run(req).await;
+    if !known && response.status() == StatusCode::OK {
+        *response.status_mut() = StatusCode::NOT_FOUND;
+        response.extensions_mut().insert(PageNotFound);
+    }
+    response
+}
 fn routes(a: App, static_dir: &str) -> Router {
+    let pages = Router::new()
+        .fallback_service(tower_http::services::ServeFile::new(format!(
+            "{static_dir}/index.html"
+        )))
+        .layer(middleware::from_fn(page_status));
     Router::new()
         .route("/health/live", get(|| async { "ok" }))
         .route(
@@ -1020,9 +1054,7 @@ fn routes(a: App, static_dir: &str) -> Router {
         .route("/api/settings/backups", get(backups).post(backup))
         .route("/api/settings/backups/{name}", get(backup_download))
         .route("/api/{*rest}", get(|| async { Error::missing() }))
-        .fallback_service(tower_http::services::ServeDir::new(static_dir).fallback(
-            tower_http::services::ServeFile::new(format!("{static_dir}/index.html")),
-        ))
+        .fallback_service(tower_http::services::ServeDir::new(static_dir).fallback(pages))
         .layer(DefaultBodyLimit::max(CHUNK as usize))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             CHUNK as usize,

@@ -2,6 +2,11 @@ import { ref } from "vue";
 export const locale = ref(localStorage.getItem("mc-locale") || "zh");
 export const theme = ref(localStorage.getItem("mc-theme") || "system");
 const en: Record<string, string> = {
+  pageNotFoundTitle: "This page wandered off",
+  pageNotFoundHint:
+    "Maiji couldn’t find this page. Check the address, or head back to your cloud home.",
+  returnHome: "Back to home",
+  mascotAlt: "Maiji, the Magic Cloud penguin",
   heroDescription:
     "Photos, videos, and work files — Maiji keeps them all neatly tucked away.",
   heroSupport: "Upload, organize, and share. Leave it to Maiji.",
@@ -166,6 +171,11 @@ const en: Record<string, string> = {
   chunks_in_flight: "Upload is still stopping. Please retry shortly.",
 };
 const zh: Record<string, string> = {
+  pageNotFoundTitle: "这个页面走丢了",
+  pageNotFoundHint:
+    "麦吉没有找到这个页面。检查一下网址，或回到你的云端小窝吧。",
+  returnHome: "返回首页",
+  mascotAlt: "麦吉云的小企鹅麦吉",
   heroDescription: "照片、视频、工作文件，麦吉都帮你收得妥妥当当。",
   heroSupport: "上传、整理、分享，交给麦吉就好。",
   productBrand: "Magic Cloud 麦吉云",

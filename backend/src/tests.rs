@@ -1097,3 +1097,150 @@ async fn unavailable_share_download_uses_the_friendly_page_for_browser_navigatio
         "not_found"
     );
 }
+
+#[tokio::test]
+async fn page_routes_return_real_404_without_breaking_spa_or_assets() {
+    let f = Fixture::new();
+    let static_dir = tempfile::tempdir().unwrap();
+    fs::write(
+        static_dir.path().join("index.html"),
+        "<html>Magic Cloud SPA</html>",
+    )
+    .unwrap();
+    fs::create_dir(static_dir.path().join("assets")).unwrap();
+    fs::write(
+        static_dir.path().join("assets/app.js"),
+        "console.log('asset');",
+    )
+    .unwrap();
+    let app = routes(f.app.clone(), static_dir.path().to_str().unwrap());
+    for path in [
+        "/",
+        "/files/root",
+        "/recent",
+        "/shares",
+        "/trash",
+        "/settings",
+        "/settings/",
+        "/s/example-token?node=example",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+    }
+    for path in [
+        "/this_is_the_test_route",
+        "/abcdefg",
+        "/settings/extra",
+        "/files",
+        "/s",
+        "/s/token/extra",
+        "/Settings",
+        "/files/root/extra",
+        "/assets/missing.js",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body.as_ref(), b"<html>Magic Cloud SPA</html>", "{path}");
+    }
+    let conditional = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/abcdefg")
+                .header("if-none-match", "*")
+                .header("range", "bytes=0-3")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conditional.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        conditional
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        b"<html>Magic Cloud SPA</html>"
+    );
+    let head = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("HEAD")
+                .uri("/abcdefg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), StatusCode::NOT_FOUND);
+    assert!(
+        head.into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .is_empty()
+    );
+    let asset = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/assets/app.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert_eq!(
+        asset
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        b"console.log('asset');"
+    );
+    let (cookie, _) = f.auth().await;
+    let api = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/unknown")
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(api.status(), StatusCode::NOT_FOUND);
+    assert!(
+        api.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .contains("application/json")
+    );
+}
