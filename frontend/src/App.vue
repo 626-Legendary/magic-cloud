@@ -3,6 +3,7 @@ import { copyText } from "./browser";
 import heroImage from "./assets/Hero.png";
 import { fileKind } from "./file-kind";
 import MediaThumbnail from "./MediaThumbnail.vue";
+import ShieldHouse from "./icons/ShieldHouse";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -51,6 +52,11 @@ import {
   FileSpreadsheet,
   Info,
   TriangleAlert,
+  FolderLock,
+  PackageOpen,
+  CloudDownload,
+  LockKeyhole,
+  ArrowRight,
 } from "lucide-vue-next";
 import { api, ApiError, setCsrf, bytes, date, type Node } from "./api";
 import { locale, theme, t, applyPreferences } from "./i18n";
@@ -68,6 +74,13 @@ import {
   type Task,
 } from "./transfer";
 const currentYear = new Date().getFullYear();
+const loginFeatures = [
+  { key: "featureSecurity", icon: ShieldCheck },
+  { key: "featureSpace", icon: FolderLock },
+  { key: "featureStorage", icon: PackageOpen },
+  { key: "featureDownload", icon: CloudDownload },
+  { key: "featureSync", icon: RefreshCw },
+];
 const appVersion = import.meta.env.VITE_APP_VERSION || "1.0.0";
 const route = useRoute(),
   router = useRouter(),
@@ -1240,35 +1253,48 @@ onUnmounted(() => {
         <p class="hero-support">{{ t("heroSupport") }}</p>
       </div>
       <div class="privacy-pill">
-        <ShieldCheck aria-hidden="true" :size="16" />{{ t("secure") }}
+        <ShieldHouse aria-hidden="true" :size="16" />{{
+          t("cloudflareSecurity")
+        }}
       </div>
     </section>
     <section class="login-form-wrap">
       <form class="login-form" @submit.prevent="signIn">
-        <h2>{{ t("login") }}</h2>
+        <h2>{{ t("loginTitle") }}</h2>
         <p class="muted">{{ t("loginHint") }}</p>
-        <label for="password">{{ t("password") }}</label><input
-          id="password"
-          v-model="password"
-          type="password"
-          autocomplete="current-password"
-          required
-          autofocus
-          :placeholder="t('password')"
-          :aria-invalid="!!error"
-          :aria-describedby="error ? 'login-error' : undefined"
-        />
+        <label for="password">{{ t("password") }}</label>
+        <div class="password-field">
+          <LockKeyhole class="password-icon" aria-hidden="true" :size="20" />
+          <input
+            id="password"
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            autofocus
+            :placeholder="t('passwordPlaceholder')"
+            :aria-invalid="!!error"
+            :aria-describedby="error ? 'login-error' : undefined"
+          />
+        </div>
         <div v-if="error" id="login-error" role="alert" class="notice error">
           <AlertCircle aria-hidden="true" :size="16" />{{ error }}
         </div>
-        <button class="primary" :disabled="loginBusy || !password">
-          <span v-if="loginBusy" class="spinner"></span
-          ><span v-else>{{ t("login") }}</span
-          ><ChevronRight aria-hidden="true" :size="20" />
+        <button
+          class="primary login-submit"
+          :disabled="loginBusy || !password"
+          :aria-busy="loginBusy"
+        >
+          <span v-if="loginBusy" class="spinner" aria-hidden="true"></span>
+          <span class="login-submit-label">{{ t("loginSubmit") }}</span>
+          <ArrowRight v-if="!loginBusy" aria-hidden="true" :size="20" />
         </button>
-        <p class="login-privacy">
-          <ShieldCheck aria-hidden="true" :size="16" />{{ t("privacy") }}
-        </p>
+        <ul class="login-features" role="list" :aria-label="t('loginFeatures')">
+          <li v-for="feature in loginFeatures" :key="feature.key">
+            <component :is="feature.icon" :size="20" aria-hidden="true" />
+            <span>{{ t(feature.key) }}</span>
+          </li>
+        </ul>
       </form>
       <footer class="login-footer">
         <span>© {{ currentYear }} Zexiang Zhang. All rights reserved.</span>

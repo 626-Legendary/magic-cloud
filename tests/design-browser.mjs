@@ -45,7 +45,7 @@ try {
     fullPage: true,
   });
   await p.getByLabel("访问密码", { exact: true }).fill(password);
-  await p.getByRole("button", { name: "打开我的云空间", exact: true }).click();
+  await p.getByRole("button", { name: "进入", exact: true }).click();
   await p.locator(".app-shell").waitFor();
   await p.locator(".file-grid > .upload-dropzone").waitFor();
   assert.equal(

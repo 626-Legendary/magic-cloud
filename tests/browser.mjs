@@ -28,7 +28,7 @@ await page.screenshot({ path: "/tmp/mc-login.png", fullPage: true });
 await page
   .getByLabel("访问密码", { exact: true })
   .fill(process.env.MC_TEST_PASSWORD);
-await page.getByRole("button", { name: "打开我的云空间", exact: true }).click();
+await page.getByRole("button", { name: "进入", exact: true }).click();
 await page.locator(".app-shell").waitFor();
 await page.getByRole("button", { name: "新建文件夹", exact: true }).click();
 await page.locator("dialog[open] input").fill(folderName);

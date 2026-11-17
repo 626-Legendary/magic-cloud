@@ -368,16 +368,7 @@ a {
   padding: var(--mc-space-3);
 }
 .login-form > .primary svg {
-  margin-left: auto;
-}
-.login-form .login-privacy {
-  font-size: var(--mc-font-caption);
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--mc-space-2);
-  margin-top: var(--mc-space-6);
+  margin-left: 0;
 }
 .login-footer {
   position: absolute;
@@ -1654,7 +1645,9 @@ a {
     margin-bottom: 0;
   }
   .privacy-pill {
-    display: none;
+    display: inline-flex;
+    position: static;
+    margin-top: var(--mc-space-4);
   }
   .login-controls {
     top: 20px;
@@ -1673,9 +1666,6 @@ a {
   }
   .login-form > p {
     margin-bottom: var(--mc-space-6);
-  }
-  .login-form .login-privacy {
-    font-size: var(--mc-font-caption);
   }
   .login-footer {
     bottom: 20px;
@@ -2297,5 +2287,76 @@ input[aria-invalid="true"] {
   }
   .file-grid .upload-dropzone {
     min-height: 240px;
+  }
+}
+
+.privacy-pill > .lucide {
+  color: #6ee7b7;
+}
+.password-field {
+  position: relative;
+  margin-bottom: var(--mc-space-6);
+}
+.password-field .password-icon {
+  position: absolute;
+  left: var(--mc-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+.login-form .password-field input {
+  margin: 0;
+  padding-left: var(--mc-space-10);
+  height: 44px;
+}
+.login-submit {
+  gap: var(--mc-space-3);
+  min-height: 44px;
+}
+html[lang="zh-CN"] .login-submit-label {
+  letter-spacing: 0.2em;
+}
+.login-features {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--mc-space-3) 0;
+  padding: 0;
+  margin: var(--mc-space-6) 0 0;
+}
+.login-features li {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mc-space-2);
+  min-width: 0;
+  font-size: var(--mc-font-caption);
+  color: var(--muted);
+}
+.login-features li:nth-child(4) {
+  grid-column: 2 / span 2;
+}
+.login-features li:nth-child(5) {
+  grid-column: 4 / span 2;
+}
+.login-features li > .lucide {
+  color: var(--link);
+}
+.login-features li:first-child > .lucide {
+  color: var(--success);
+}
+.login-features li > span {
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .login-features li {
+    gap: var(--mc-space-1);
+  }
+  .login-features li > .lucide {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.5;
   }
 }

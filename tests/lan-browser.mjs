@@ -23,9 +23,7 @@ try {
   assert.equal(await page.evaluate(() => window.isSecureContext), false);
   assert.equal(await page.evaluate(() => typeof crypto.subtle), "undefined");
   await page.getByLabel("访问密码", { exact: true }).fill(password);
-  await page
-    .getByRole("button", { name: "打开我的云空间", exact: true })
-    .click();
+  await page.getByRole("button", { name: "进入", exact: true }).click();
   await page.locator(".app-shell").waitFor();
   const cookie = (await context.cookies()).find(
     (c) => c.name === "mc_lan_session",
