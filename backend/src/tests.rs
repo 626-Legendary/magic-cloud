@@ -1072,3 +1072,28 @@ async fn lan_origin_disabled_rejects_local_login() {
         StatusCode::FORBIDDEN
     );
 }
+
+#[tokio::test]
+async fn unavailable_share_download_uses_the_friendly_page_for_browser_navigation() {
+    let f = Fixture::new();
+    let req = axum::http::Request::builder()
+        .uri("/api/public/missing/nodes/gone/download")
+        .header("accept", "text/html")
+        .body(Body::empty())
+        .unwrap();
+    let response = routes(f.app.clone(), "/none").oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(response.headers()["location"], "/s/missing?node=gone");
+    let req = axum::http::Request::builder()
+        .uri("/api/public/missing/nodes/gone/download")
+        .header("accept", "application/json")
+        .body(Body::empty())
+        .unwrap();
+    let response = routes(f.app.clone(), "/none").oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&bytes).unwrap()["error"]["code"],
+        "not_found"
+    );
+}

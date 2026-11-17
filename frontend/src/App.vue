@@ -15,6 +15,8 @@ import {
   FolderPlus,
   FolderUp,
   Languages,
+  Link2Off,
+  WifiOff,
   Grid2X2,
   List,
   ChevronRight,
@@ -77,7 +79,8 @@ const nodes = ref<Node[]>([]),
   logs = ref<any[]>([]),
   backupRows = ref<string[]>([]),
   system = ref<any>(null),
-  publicData = ref<any>(null);
+  publicData = ref<any>(null),
+  publicError = ref<"unavailable" | "network" | null>(null);
 const search = ref(""),
   sort = ref("name"),
   desc = ref(false),
@@ -166,6 +169,8 @@ async function load() {
   sidebar.value = false;
   try {
     if (view.value === "public") {
+      publicData.value = null;
+      publicError.value = null;
       const data = await api(
         `/public/${route.params.token}${route.query.node ? "?node=" + encodeURIComponent(String(route.query.node)) : ""}`,
       );
@@ -202,7 +207,18 @@ async function load() {
       backupRows.value = b;
     }
   } catch (e) {
-    if (version === loadVersion) fail(e);
+    if (version === loadVersion) {
+      if (view.value === "public") {
+        publicData.value = null;
+        publicError.value =
+          e instanceof ApiError &&
+          (e.status === 404 ||
+            e.status === 410 ||
+            e.code === "file_identity_changed")
+            ? "unavailable"
+            : "network";
+      } else fail(e);
+    }
   } finally {
     if (version === loadVersion) loading.value = false;
   }
@@ -641,6 +657,7 @@ watch(
 );
 const systemTheme = matchMedia("(prefers-color-scheme: dark)");
 const changed = () => {
+  notify(t("uploadSuccess"));
   void load();
   void refreshStorage();
 };
@@ -691,9 +708,45 @@ onUnmounted(() => {
         <Languages :size="18" />
       </button>
     </header>
-    <div v-if="error" role="alert" class="notice error">
-      <AlertCircle :size="18" />{{ error }}
-    </div>
+    <section
+      v-if="publicError"
+      class="public-card share-unavailable"
+      role="alert"
+    >
+      <div class="share-error-icon">
+        <component
+          :is="publicError === 'unavailable' ? Link2Off : WifiOff"
+          :size="34"
+        />
+      </div>
+      <h1>
+        {{
+          t(
+            publicError === "unavailable"
+              ? "shareUnavailableTitle"
+              : "networkErrorTitle",
+          )
+        }}
+      </h1>
+      <p>
+        {{
+          t(
+            publicError === "unavailable"
+              ? "shareUnavailableHint"
+              : "network_error",
+          )
+        }}
+      </p>
+      <div class="share-error-actions">
+        <button v-if="route.query.node" @click="router.replace(route.path)">
+          <ArrowLeft :size="16" />{{ t("shareHome") }}
+        </button>
+        <button @click="load">
+          <RefreshCw :size="16" />{{ t("checkAgain") }}
+        </button>
+        <RouterLink class="button primary" to="/">{{ t("goHome") }}</RouterLink>
+      </div>
+    </section>
     <section v-if="publicData" class="public-card">
       <span class="eyebrow">{{ t("readOnly") }}</span>
       <h1>{{ publicData.root.name || t("brand") }}</h1>
@@ -758,7 +811,8 @@ onUnmounted(() => {
       <span class="brand-label"><Cloud :size="23" />{{ t("brand") }}</span>
       <div class="orb"><img src="/Logo.png" :alt="t('brand')" /></div>
       <h1>{{ t("tagline") }}</h1>
-      <p>{{ t("loginHint") }}</p>
+      <p>{{ t("heroDescription") }}</p>
+      <p class="hero-support">{{ t("heroSupport") }}</p>
       <div class="privacy-pill">
         <ShieldCheck :size="16" />{{ t("secure") }}
       </div>
@@ -767,7 +821,7 @@ onUnmounted(() => {
       <form class="login-form" @submit.prevent="signIn">
         <span class="eyebrow">YOUR PERSONAL CLOUD</span>
         <h2>{{ t("login") }}</h2>
-        <p class="muted">{{ t("welcome") }}</p>
+        <p class="muted">{{ t("loginHint") }}</p>
         <label for="password">{{ t("password") }}</label><input
           id="password"
           v-model="password"
@@ -789,9 +843,7 @@ onUnmounted(() => {
           <ShieldCheck :size="16" />{{ t("privacy") }}
         </p>
       </form>
-      <small class="login-footer"
-        >Magic Cloud · Made for your own little world</small
-      >
+      <small class="login-footer">{{ t("productLead") }}</small>
     </section>
   </main>
   <div v-else class="app-shell" @click="menu = ''">
@@ -989,10 +1041,20 @@ onUnmounted(() => {
           <div v-if="loading" class="empty"><span class="spinner"></span></div>
           <div v-else-if="!nodes.length" class="empty">
             <div class="empty-orbit"><img src="/Logo.png" alt="" /></div>
-            <h2>{{ t(search ? "emptyList" : "empty") }}</h2>
-            <p>{{ t("emptyHint") }}</p>
+            <h2>
+              {{
+                t(
+                  search
+                    ? "searchEmpty"
+                    : view === "recent"
+                      ? "emptyList"
+                      : "empty",
+                )
+              }}
+            </h2>
+            <p v-if="!search && view === 'files'">{{ t("emptyHint") }}</p>
             <button
-              v-if="view === 'files'"
+              v-if="view === 'files' && !search"
               class="primary"
               @click="fileInput?.click()"
             >
@@ -1094,7 +1156,7 @@ onUnmounted(() => {
         <section v-else-if="view === 'trash'" class="panel">
           <div v-if="!trashRows.length" class="empty">
             <Trash2 :size="42" />
-            <p>{{ t("emptyList") }}</p>
+            <p>{{ t("trashEmpty") }}</p>
           </div>
           <article v-for="n in trashRows" :key="n.id" class="data-row">
             <component :is="icon(n)" :size="26" :class="kindClass(n)" />
@@ -1155,6 +1217,26 @@ onUnmounted(() => {
               >{{ t("systemInfo") }}: {{ system.system.version }} ·
               {{ system.system.os }} / {{ system.system.architecture }}</small
             >
+          </section>
+          <section class="panel full about-panel">
+            <h2><Cloud :size="20" />{{ t("about") }}</h2>
+            <div class="about-brand">
+              <img src="/Logo.png" alt="" />
+              <div>
+                <span class="eyebrow">{{ t("productBrand") }}</span>
+                <h3>{{ t("productTagline") }}</h3>
+              </div>
+            </div>
+            <details>
+              <summary>{{ t("productLead") }}</summary>
+              <div class="brand-story">
+                <p>{{ t("productIntro") }}</p>
+                <p>{{ t("productCare") }}</p>
+                <p>{{ t("productEase") }}</p>
+                <p>{{ t("privacy") }}</p>
+                <p>{{ t("productClosing") }}</p>
+              </div>
+            </details>
           </section>
           <section class="panel full">
             <div class="panel-heading">

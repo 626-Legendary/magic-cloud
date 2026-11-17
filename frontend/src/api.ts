@@ -37,13 +37,24 @@ export class ApiError extends Error {
     super(code);
   }
 }
+async function fetchResponse(
+  path: string,
+  options: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetch(path, options);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    throw new ApiError("network_error", 0, null);
+  }
+}
 export async function api<T = any>(
   path: string,
   method = "GET",
   data?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetchResponse(`/api${path}`, {
     method,
     credentials: "same-origin",
     headers: {
@@ -54,16 +65,14 @@ export async function api<T = any>(
     signal,
   });
   if (!res.ok) {
-    const e = await res
-      .json()
-      .catch(() => ({
-        error: {
-          code:
-            res.status === 502 || res.status === 503
-              ? "service_unavailable"
-              : "request_failed",
-        },
-      }));
+    const e = await res.json().catch(() => ({
+      error: {
+        code:
+          res.status === 502 || res.status === 503
+            ? "service_unavailable"
+            : "request_failed",
+      },
+    }));
     throw new ApiError(
       e.error?.code || "request_failed",
       res.status,
@@ -79,7 +88,7 @@ export async function putChunk(
   digest: string,
   signal: AbortSignal,
 ) {
-  const res = await fetch(`/api/uploads/${id}/chunks/${index}`, {
+  const res = await fetchResponse(`/api/uploads/${id}/chunks/${index}`, {
     method: "PUT",
     credentials: "same-origin",
     headers: { "X-CSRF-Token": csrf, "X-Chunk-SHA256": digest },

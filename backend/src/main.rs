@@ -882,7 +882,16 @@ async fn public_download(
     Path((t, id)): Path<(String, String)>,
     h: HeaderMap,
 ) -> Result<Response> {
-    let (f, n) = a
+    let browser_navigation = h
+        .get("accept")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("text/html"));
+    let page = format!(
+        "/s/{}?node={}",
+        percent_encoding::utf8_percent_encode(&t, percent_encoding::NON_ALPHANUMERIC),
+        percent_encoding::utf8_percent_encode(&id, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let resolved = a
         .run(move |c| {
             let root = share_root(c, &t)?;
             if !c.within(&id, &root.id)? {
@@ -895,7 +904,17 @@ async fn public_download(
             }
             Ok((c.open_node(&n)?, n.name))
         })
-        .await?;
+        .await;
+    let (f, n) = match resolved {
+        Ok(value) => value,
+        Err(error)
+            if browser_navigation
+                && (error.0 == StatusCode::NOT_FOUND || error.1 == "file_identity_changed") =>
+        {
+            return Ok(axum::response::Redirect::temporary(&page).into_response());
+        }
+        Err(error) => return Err(error),
+    };
     send_file(f, n, h, false).await
 }
 async fn text_preview(State(a): State<App>, Path(id): Path<String>) -> Result<Json<Value>> {

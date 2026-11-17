@@ -81,7 +81,10 @@ async function retry<T>(fn: () => Promise<T>, signal: AbortSignal): Promise<T> {
       if (
         signal.aborted ||
         i >= 4 ||
-        (e instanceof ApiError && e.status < 500 && e.status !== 429)
+        (e instanceof ApiError &&
+          e.status > 0 &&
+          e.status < 500 &&
+          e.status !== 429)
       )
         throw e;
       await new Promise<void>((resolve, reject) => {
