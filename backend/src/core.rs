@@ -419,6 +419,101 @@ impl Core {
         );
         Ok(())
     }
+    fn selected_roots(&self, ids: &[String]) -> Result<Vec<Node>> {
+        if ids.is_empty() || ids.len() > 500 {
+            return Err(Error::bad("invalid_batch"));
+        }
+        let selected: HashSet<_> = ids.iter().cloned().collect();
+        let mut roots = Vec::new();
+        for id in &selected {
+            let node = self.node(id)?;
+            if node.id == "root" {
+                return Err(Error::bad("root_protected"));
+            }
+            self.verify(&node)?;
+            let mut parent = node.parent.clone();
+            let mut nested = false;
+            let mut seen = HashSet::new();
+            while let Some(id) = parent {
+                if !seen.insert(id.clone()) {
+                    return Err(Error::bad("invalid_hierarchy"));
+                }
+                if selected.contains(&id) {
+                    nested = true;
+                    break;
+                }
+                parent = self.node(&id)?.parent;
+            }
+            if !nested {
+                roots.push(node);
+            }
+        }
+        roots.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(roots)
+    }
+    pub fn trash_many(&mut self, ids: &[String]) -> Result<usize> {
+        let roots = self.selected_roots(ids)?;
+        let mut mutation = Mutation::default();
+        for node in &roots {
+            self.trash_plan(node, &mut mutation)?;
+        }
+        self.commit(mutation)?;
+        Ok(roots.len())
+    }
+    pub fn relocate_many(&mut self, ids: &[String], parent: &str) -> Result<usize> {
+        let roots = self.selected_roots(ids)?;
+        let destination = self.folder(parent)?;
+        for node in &roots {
+            if self.within(&destination.id, &node.id)? {
+                return Err(Error::bad("move_into_descendant"));
+            }
+        }
+        let mut occupied: HashSet<String> = self
+            .nodes()?
+            .into_iter()
+            .filter(|n| !n.deleted && n.parent.as_deref() == Some(parent))
+            .map(|n| n.name)
+            .collect();
+        let mut mutation = Mutation::default();
+        let mut count = 0;
+        for node in &roots {
+            if node.parent.as_deref() == Some(parent) {
+                continue;
+            }
+            let (stem, extension) = node
+                .name
+                .rsplit_once('.')
+                .filter(|(stem, _)| !stem.is_empty())
+                .map(|(stem, ext)| (stem, format!(".{ext}")))
+                .unwrap_or((&node.name, String::new()));
+            let mut candidate = node.name.clone();
+            let mut suffix = 0;
+            while occupied.contains(&candidate) {
+                suffix += 1;
+                if suffix >= 10000 {
+                    return Err(Error::conflict());
+                }
+                candidate = format!("{stem} ({suffix}){extension}");
+            }
+            name(&candidate)?;
+            occupied.insert(candidate.clone());
+            let path = format!("{}/{candidate}", destination.path);
+            mutation.moves.push(self.move_item(node, path.clone()));
+            for mut child in self.subtree(node)? {
+                child.path = format!("{}{}", path, &child.path[node.path.len()..]);
+                if child.id == node.id {
+                    child.name = candidate.clone();
+                    child.parent = Some(parent.into());
+                }
+                mutation.nodes.push(child);
+            }
+            count += 1;
+        }
+        if count > 0 {
+            self.commit(mutation)?;
+        }
+        Ok(count)
+    }
     pub fn commit(&mut self, m: Mutation) -> Result<()> {
         let oid = id();
         let data = serde_json::to_string(&m).map_err(|_| Error::bad("journal_error"))?;
@@ -486,6 +581,9 @@ impl Core {
                     "UPDATE uploads SET state='complete',node=?2 WHERE id=?1",
                     params![u, n],
                 )?;
+            }
+            for n in m.nodes.iter().filter(|n| n.deleted && n.kind == "file") {
+                crate::thumbnails::remove_cached(self, n)?;
             }
             self.db
                 .execute("DELETE FROM operations WHERE id=?1", [oid])?;
@@ -802,6 +900,9 @@ impl Core {
             .query_row("SELECT path FROM trash WHERE id=?1", [id], |r| r.get(0))
             .optional()?
             .ok_or_else(Error::missing)?;
+        for n in self.subtree(&self.node(id)?)? {
+            crate::thumbnails::remove_cached(self, &n)?;
+        }
         if self.storage.exists(&path) {
             self.storage.remove(&path)?
         }

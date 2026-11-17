@@ -11,12 +11,14 @@
 | POST | `/auth/logout` | 会话+CSRF | `{ok:true}`，立即撤销 |
 | GET | `/nodes` | 会话；`parent=root,q,sort,desc,recent` | `{nodes,breadcrumbs}` |
 | POST | `/nodes` | 会话+CSRF；`{parent,name}` | 新建目录节点 |
+| POST | `/nodes/batch-move` | 会话+CSRF；`{ids,parent}`，最多 500 项 | 批量移动，自动重命名同名项目，保留现有文件；`{count}` |
+| POST | `/nodes/batch-trash` | 会话+CSRF；`{ids}`，最多 500 项 | 统一校验、合并嵌套选择并移入回收站，`{count}` |
 | GET | `/nodes/{id}` | 会话 | 节点详情 |
 | PATCH | `/nodes/{id}` | 会话+CSRF；`{parent,name,strategy}` | 保留 ID 的新节点信息 |
 | DELETE | `/nodes/{id}` | 会话+CSRF | 进入回收站，`{ok:true}` |
 | GET | `/nodes/{id}/download` | 会话；可选 `inline=true` 与 Range 头 | 200/206 文件流 |
 | GET | `/nodes/{id}/text` | 会话 | `{text}`，UTF-8，≤2 MiB |
-| GET | `/nodes/{id}/thumbnail` | 会话 | JPEG；失败时 UI 显示类型图标 |
+| GET | `/nodes/{id}/thumbnail` | 会话 | 就绪返回 JPEG；生成中返回 202 `{state:"pending"}` 并入队；失败返回明确错误 |
 | GET | `/uploads` | 会话 | 未过期任务数组 |
 | POST | `/uploads` | 会话+CSRF；见下文 | `{upload,chunk_size,chunks}` |
 | GET | `/uploads/{id}` | 会话 | `{upload,chunk_size,chunks}` |
@@ -40,6 +42,7 @@
 | GET | `/settings/backups` | 会话 | 备份文件名数组 |
 | POST | `/settings/backups` | 会话+CSRF | `{name}`，新的一致性备份 |
 | GET | `/settings/backups/{name}` | 会话 | 数据库备份流 |
+| DELETE | `/settings/backups/{name}` | 会话+CSRF | 永久删除指定备份，不影响当前数据库及原文件，`{ok:true}` |
 
 `/health/live` 和 `/health/ready` 不带 `/api`，只返回通用状态，用于容器内部健康检查。健康端点不包含配置、文件或设备详情。
 

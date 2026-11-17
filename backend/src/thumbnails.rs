@@ -1,11 +1,80 @@
 use crate::*;
 use std::{
+    collections::{HashSet, VecDeque},
     io::Read,
     os::unix::process::CommandExt,
     process::{Command, Stdio},
-    sync::OnceLock,
 };
-static PERMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+#[derive(Default)]
+pub struct Queue {
+    state: Mutex<(VecDeque<String>, HashSet<String>)>,
+    notify: tokio::sync::Notify,
+}
+impl Queue {
+    pub fn enqueue(&self, id: String) {
+        if let Ok(mut state) = self.state.lock()
+            && state.1.insert(id.clone())
+        {
+            state.0.push_back(id);
+            self.notify.notify_one();
+        }
+    }
+    fn pop(&self) -> Option<String> {
+        self.state.lock().ok()?.0.pop_front()
+    }
+    fn finish(&self, id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.1.remove(id);
+        }
+    }
+}
+pub async fn worker(a: App) {
+    loop {
+        let notified = a.thumbnails.notify.notified();
+        if let Some(id) = a.thumbnails.pop() {
+            let _ = generate(&a, id.clone()).await;
+            a.thumbnails.finish(&id);
+        } else {
+            notified.await;
+        }
+    }
+}
+pub fn key(n: &Node) -> String {
+    hash(format!(
+        "seekable-v2:{}:{}:{}:{}:{}:{}",
+        n.id, n.dev, n.ino, n.size, n.mtime, n.mtime_ns
+    ))
+}
+fn legacy_key(n: &Node) -> String {
+    hash(format!(
+        "{}:{}:{}:{}:{}:{}",
+        n.id, n.dev, n.ino, n.size, n.mtime, n.mtime_ns
+    ))
+}
+fn cached_path(c: &Core, n: &Node) -> Result<Option<String>> {
+    let path = format!(".magic-cloud/thumbnails/{}.jpg", key(n));
+    if c.storage.exists(&path) {
+        return Ok(Some(path));
+    }
+    let legacy = format!(".magic-cloud/thumbnails/{}.jpg", legacy_key(n));
+    if c.storage.exists(&legacy) {
+        c.storage.rename(&legacy, &path)?;
+        return Ok(Some(path));
+    }
+    Ok(None)
+}
+pub fn remove_cached(c: &Core, n: &Node) -> Result<()> {
+    let legacy = legacy_key(n);
+    for key in [key(n), legacy] {
+        for extension in ["jpg", "failed"] {
+            let path = format!(".magic-cloud/thumbnails/{key}.{extension}");
+            if c.storage.exists(&path) {
+                c.storage.remove(&path)?;
+            }
+        }
+    }
+    Ok(())
+}
 pub fn supported(name: &str) -> bool {
     format(name).is_some()
 }
@@ -24,24 +93,29 @@ fn format(name: &str) -> Option<&'static str> {
 }
 fn render(input: std::fs::File, format: &str) -> Result<Vec<u8>> {
     let mut command = Command::new("ffmpeg");
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-threads",
+        "1",
+        "-filter_threads",
+        "1",
+        "-max_alloc",
+        "67108864",
+        "-protocol_whitelist",
+        "file,pipe",
+        "-f",
+        format,
+    ]);
+    if format == "mov" {
+        command.args(["-enable_drefs", "0", "-use_absolute_path", "0"]);
+    }
     command
         .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-threads",
-            "1",
-            "-filter_threads",
-            "1",
-            "-max_alloc",
-            "67108864",
-            "-protocol_whitelist",
-            "pipe",
-            "-f",
-            format,
             "-i",
-            "pipe:0",
+            "/proc/self/fd/0",
             "-frames:v",
             "1",
             "-vf",
@@ -104,94 +178,100 @@ fn render(input: std::fs::File, format: &str) -> Result<Vec<u8>> {
     }
 }
 pub async fn thumbnail(State(a): State<App>, Path(id): Path<String>) -> Result<Response> {
-    let (key, source, existing, fmt) = a
+    let queued = id.clone();
+    let response = a
+        .run(move |c| {
+            let n = c.node(&id)?;
+            c.verify(&n)?;
+            if !supported(&n.name) {
+                return Err(Error::missing());
+            }
+            let key = key(&n);
+            if let Some(path) = cached_path(c, &n)? {
+                return Ok(Some(c.storage.file(&path, libc::O_RDONLY)?));
+            }
+            if c.storage
+                .exists(&format!(".magic-cloud/thumbnails/{key}.failed"))
+            {
+                return Err(Error::bad("thumbnail_failed"));
+            }
+            Ok(None)
+        })
+        .await?;
+    if let Some(file) = response {
+        return image_response(file).await;
+    }
+    a.thumbnails.enqueue(queued);
+    Ok((StatusCode::ACCEPTED, Json(json!({"state":"pending"}))).into_response())
+}
+async fn generate(a: &App, id: String) -> Result<()> {
+    let snapshot = a
         .run(move |c| {
             let n = c.node(&id)?;
             c.verify(&n)?;
             let fmt = format(&n.name).ok_or_else(Error::missing)?;
-            if n.size > 512 * 1024 * 1024 {
-                return Err(Error::bad("thumbnail_input_limit"));
+            let key = key(&n);
+            if cached_path(c, &n)?.is_some()
+                || c.storage
+                    .exists(&format!(".magic-cloud/thumbnails/{key}.failed"))
+            {
+                return Ok(None);
             }
-            let key = hash(format!(
-                "{}:{}:{}:{}:{}:{}",
-                n.id, n.dev, n.ino, n.size, n.mtime, n.mtime_ns
-            ));
-            let path = format!(".magic-cloud/thumbnails/{key}.jpg");
-            let failure = format!(".magic-cloud/thumbnails/{key}.failed");
-            if c.storage.exists(&failure) {
-                let mut text = String::new();
-                c.storage
-                    .file(&failure, libc::O_RDONLY)?
-                    .read_to_string(&mut text)?;
-                if text.parse::<u32>().unwrap_or(3) >= 3 {
-                    return Err(Error::bad("thumbnail_retry_exhausted"));
+            Ok(Some((n.clone(), c.open_node(&n)?, fmt)))
+        })
+        .await?;
+    let Some((node, source, fmt)) = snapshot else {
+        return Ok(());
+    };
+    let too_large = node.size > 512 * 1024 * 1024 && !matches!(fmt, "mov" | "matroska" | "avi");
+    let rendered = if too_large {
+        Err(Error::bad("thumbnail_input_limit"))
+    } else {
+        tokio::task::spawn_blocking(move || render(source, fmt))
+            .await
+            .map_err(|_| Error::bad("thumbnail_failed"))?
+    };
+    a.run(move |c| {
+        use std::io::Write;
+        let current = c.node(&node.id)?;
+        // A file may have been deleted or replaced while FFmpeg was running.
+        if current.deleted || key(&current) != key(&node) {
+            return Ok(());
+        }
+        c.verify(&current)?;
+        let key = key(&current);
+        match rendered {
+            Ok(data) => {
+                let path = format!(".magic-cloud/thumbnails/{key}.jpg");
+                if !c.storage.exists(&path) {
+                    let tmp = format!(".magic-cloud/thumbnails/{}.tmp", core::id());
+                    let result = (|| -> Result<()> {
+                        let mut file = c
+                            .storage
+                            .file(&tmp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)?;
+                        file.write_all(&data)?;
+                        file.sync_all()?;
+                        c.storage.rename(&tmp, &path)?;
+                        Ok(())
+                    })();
+                    if result.is_err() && c.storage.exists(&tmp) {
+                        let _ = c.storage.remove(&tmp);
+                    }
+                    result?;
                 }
             }
-            let existing = if c.storage.exists(&path) {
-                Some(c.storage.file(&path, libc::O_RDONLY)?)
-            } else {
-                None
-            };
-            Ok((key, c.open_node(&n)?, existing, fmt))
-        })
-        .await?;
-    if let Some(f) = existing {
-        return image_response(f).await;
-    }
-    let permit = PERMIT
-        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1)))
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| Error(StatusCode::TOO_MANY_REQUESTS, "thumbnail_busy", Value::Null))?;
-    let rendered = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        render(source, fmt)
+            Err(error) => {
+                let path = format!(".magic-cloud/thumbnails/{key}.failed");
+                let mut file = c
+                    .storage
+                    .file(&path, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC)?;
+                file.write_all(error.1.as_bytes())?;
+                file.sync_all()?;
+            }
+        }
+        Ok(())
     })
     .await
-    .map_err(|_| Error::bad("thumbnail_failed"))?;
-    let data = match rendered {
-        Ok(data) => data,
-        Err(error) => {
-            let failed_key = key.clone();
-            let _ = a
-                .run(move |c| {
-                    use std::io::Write;
-                    let path = format!(".magic-cloud/thumbnails/{failed_key}.failed");
-                    let mut count = String::new();
-                    if c.storage.exists(&path) {
-                        c.storage
-                            .file(&path, libc::O_RDONLY)?
-                            .read_to_string(&mut count)?;
-                    }
-                    let count = count.parse::<u32>().unwrap_or(0) + 1;
-                    let mut file = c
-                        .storage
-                        .file(&path, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC)?;
-                    file.write_all(count.to_string().as_bytes())?;
-                    file.sync_all()?;
-                    Ok(())
-                })
-                .await;
-            return Err(error);
-        }
-    };
-    let f = a
-        .run(move |c| {
-            use std::io::Write;
-            let path = format!(".magic-cloud/thumbnails/{key}.jpg");
-            if !c.storage.exists(&path) {
-                let tmp = format!(".magic-cloud/thumbnails/{}", core::id());
-                let mut f = c
-                    .storage
-                    .file(&tmp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)?;
-                f.write_all(&data)?;
-                f.sync_all()?;
-                c.storage.rename(&tmp, &path)?;
-            }
-            c.storage.file(&path, libc::O_RDONLY)
-        })
-        .await?;
-    image_response(f).await
 }
 async fn image_response(file: std::fs::File) -> Result<Response> {
     let mut r = Response::new(Body::from_stream(tokio_util::io::ReaderStream::new(

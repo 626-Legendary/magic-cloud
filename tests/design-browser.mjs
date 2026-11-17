@@ -47,12 +47,15 @@ try {
   await p.getByLabel("访问密码", { exact: true }).fill(password);
   await p.getByRole("button", { name: "打开我的云空间", exact: true }).click();
   await p.locator(".app-shell").waitFor();
-  await p
-    .getByRole("heading", {
-      name: "这里还是空空的，上传第一份文件吧！",
-      exact: true,
-    })
-    .waitFor();
+  await p.locator(".file-grid > .upload-dropzone").waitFor();
+  assert.equal(
+    await p
+      .locator(".file-grid")
+      .evaluate((e) =>
+        e.firstElementChild.classList.contains("upload-dropzone"),
+      ),
+    true,
+  );
   await p.getByRole("button", { name: "新建文件夹", exact: true }).click();
   assert(
     (await p.getByRole("dialog").ariaSnapshot()).includes(
@@ -147,13 +150,11 @@ try {
       .evaluate((e) => e === document.activeElement),
     true,
   );
-  const focus = await p
-    .locator(".search input")
-    .evaluate((e) => ({
-      outline: getComputedStyle(e).outlineStyle,
-      color: getComputedStyle(e).outlineColor,
-      shadow: getComputedStyle(e).boxShadow,
-    }));
+  const focus = await p.locator(".search input").evaluate((e) => ({
+    outline: getComputedStyle(e).outlineStyle,
+    color: getComputedStyle(e).outlineColor,
+    shadow: getComputedStyle(e).boxShadow,
+  }));
   assert.notEqual(focus.outline, "none");
   assert.notEqual(focus.shadow, "none");
   result.focus = focus;
@@ -261,21 +262,17 @@ try {
     .locator(".setting-row select")
     .evaluateAll((es) => es.map((e) => e.labels.length));
   assert.deepEqual(result.settingsLabels, [1, 1]);
-  const nav = await p
-    .locator(".sidebar nav a.active")
-    .evaluate((e) => ({
-      fg: getComputedStyle(e).color,
-      bg: getComputedStyle(e).backgroundColor,
-    }));
+  const nav = await p.locator(".sidebar nav a.active").evaluate((e) => ({
+    fg: getComputedStyle(e).color,
+    bg: getComputedStyle(e).backgroundColor,
+  }));
   result.darkNavContrast = contrast(nav.fg, nav.bg);
   assert(result.darkNavContrast >= 4.5);
   await p.getByRole("link", { name: "我的文件", exact: true }).click();
-  const button = await p
-    .locator(".heading-actions .primary")
-    .evaluate((e) => ({
-      fg: getComputedStyle(e).color,
-      bg: getComputedStyle(e).backgroundColor,
-    }));
+  const button = await p.locator(".heading-actions .primary").evaluate((e) => ({
+    fg: getComputedStyle(e).color,
+    bg: getComputedStyle(e).backgroundColor,
+  }));
   result.darkButtonContrast = contrast(button.fg, button.bg);
   assert(result.darkButtonContrast >= 4.5);
   await p.screenshot({

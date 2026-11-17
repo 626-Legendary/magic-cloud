@@ -564,17 +564,6 @@ a {
   color: var(--muted);
   white-space: nowrap;
 }
-.avatar {
-  height: 36px;
-  width: 36px;
-  border: 1px solid var(--border);
-  background: var(--secondary);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--link);
-  margin-left: var(--mc-space-4);
-}
 .topbar-label {
   font-size: var(--mc-font-secondary);
   color: var(--muted);
@@ -1393,9 +1382,6 @@ a {
   .heading-actions button {
     padding: var(--mc-space-2) var(--mc-space-3);
   }
-  .heading-actions button:not(.primary) > span {
-    display: none;
-  }
   .list-head,
   .file-list .file-item {
     grid-template-columns: 20px minmax(0, 1fr) 80px 120px 36px;
@@ -1474,11 +1460,6 @@ a {
   }
   .topbar-status > .online-dot {
     display: none;
-  }
-  .avatar {
-    margin-left: 0;
-    height: 31px;
-    width: 31px;
   }
   .content {
     padding: var(--mc-space-6) var(--mc-space-4) var(--mc-space-32);
@@ -2221,5 +2202,100 @@ input[aria-invalid="true"] {
 @media (prefers-reduced-motion: reduce) {
   .icon-button[data-tooltip]::after {
     transition: none;
+  }
+}
+
+/* File actions keep their labels and touch targets on every screen size. */
+.heading-actions button {
+  min-height: 44px;
+  padding: var(--mc-space-3) var(--mc-space-4);
+  font-size: var(--mc-font-secondary);
+}
+.heading-actions button > span {
+  display: inline;
+}
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: var(--mc-space-2);
+}
+.sort-control label {
+  color: var(--text-secondary);
+  font-size: var(--mc-font-caption);
+  white-space: nowrap;
+}
+.sort-control select {
+  border: 1px solid var(--muted);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--mc-radius-md);
+  padding: 0 var(--mc-space-3);
+  font-size: var(--mc-font-secondary);
+}
+.sort-control option {
+  background: var(--surface);
+  color: var(--text);
+}
+.file-grid .upload-dropzone {
+  min-height: 240px;
+  height: 100%;
+  margin: 0;
+  padding: var(--mc-space-4);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--mc-shadow-sm);
+}
+.file-grid .upload-dropzone > .lucide {
+  width: 40px;
+  height: 40px;
+}
+.file-list .upload-dropzone {
+  margin: 0;
+  min-height: var(--mc-row-height);
+}
+.backup-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dialog p {
+  white-space: pre-line;
+}
+#logout-description {
+  display: flex;
+  align-items: center;
+  gap: var(--mc-space-3);
+}
+@media (max-width: 1023px) {
+  .page-heading {
+    flex-direction: column;
+  }
+  .heading-actions {
+    width: 100%;
+  }
+}
+@media (max-width: 767px) {
+  .heading-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .heading-actions .new-folder-button {
+    grid-column: 1 / -1;
+  }
+  .heading-actions button {
+    font-size: var(--mc-font-secondary);
+    padding: var(--mc-space-2);
+  }
+  .toolbar-right {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .sort-control {
+    flex: 1;
+    flex-wrap: wrap;
+    gap: var(--mc-space-1);
+  }
+  .file-grid .upload-dropzone {
+    min-height: 240px;
   }
 }

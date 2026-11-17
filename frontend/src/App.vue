@@ -2,6 +2,7 @@
 import { copyText } from "./browser";
 import heroImage from "./assets/Hero.png";
 import { fileKind } from "./file-kind";
+import MediaThumbnail from "./MediaThumbnail.vue";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -79,6 +80,12 @@ const authenticated = ref(false),
   error = ref(""),
   toast = ref(""),
   sidebar = ref(false);
+const logoutBusy = ref(false),
+  logoutError = ref(""),
+  logoutDialog = ref<HTMLDialogElement>();
+const backupBusy = ref(false);
+const batchBusy = ref(false),
+  movingMany = ref<string[]>([]);
 const compactQuery = matchMedia("(max-width: 767px)");
 const compactLayout = ref(compactQuery.matches);
 const sidebarElement = ref<HTMLElement>();
@@ -396,13 +403,44 @@ async function signIn() {
   }
 }
 async function signOut() {
+  if (logoutBusy.value) return;
+  sidebar.value = false;
+  logoutBusy.value = true;
+  logoutError.value = "";
+  if (!logoutDialog.value?.open) openDialog(logoutDialog.value);
+  stopAll();
+  const timed = async (path: string, method = "GET", data?: unknown) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      return await api(path, method, data, controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   try {
-    await api("/auth/logout", "POST", {});
-    stopAll();
+    try {
+      await timed("/auth/logout", "POST", {});
+    } catch {
+      /* A lost response is resolved by checking the session below. */
+    }
+    let signedOut = false;
+    try {
+      await timed("/auth/session");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) signedOut = true;
+      else throw error;
+    }
+    if (!signedOut) throw new Error("logoutNotConfirmed");
     authenticated.value = false;
     setCsrf("");
+    selectedIds.value = new Set();
+    logoutDialog.value?.close();
+    await router.replace("/files/root");
   } catch (e) {
-    fail(e);
+    logoutError.value = t("logoutNotConfirmed");
+  } finally {
+    logoutBusy.value = false;
   }
 }
 async function refreshStorage() {
@@ -498,7 +536,10 @@ async function loadMove(id: string) {
     const data = await api("/nodes?parent=" + id);
     moveParent.value = id;
     moveNodes.value = data.nodes.filter(
-      (x: Node) => x.kind === "folder" && x.id !== moving.value?.id,
+      (x: Node) =>
+        x.kind === "folder" &&
+        x.id !== moving.value?.id &&
+        !movingMany.value.includes(x.id),
     );
     moveCrumbs.value = data.breadcrumbs;
   } catch (e) {
@@ -509,10 +550,35 @@ async function startMove(n: Node) {
   const trigger = dialogTrigger();
   menu.value = "";
   moving.value = n;
+  movingMany.value = [];
   await loadMove("root");
   openDialog(moveDialog.value, trigger);
 }
 async function finishMove() {
+  if (batchBusy.value) return;
+  if (movingMany.value.length) {
+    const ids = [...movingMany.value];
+    batchBusy.value = true;
+    moveDialog.value?.close();
+    try {
+      const result = await api("/nodes/batch-move", "POST", {
+        ids,
+        parent: moveParent.value,
+      });
+      selectedIds.value = new Set();
+      await load();
+      notify(
+        t(result.count ? "fileMoved" : "alreadyInFolder"),
+        result.count ? "success" : "info",
+      );
+    } catch (error) {
+      fail(error);
+    } finally {
+      batchBusy.value = false;
+      movingMany.value = [];
+    }
+    return;
+  }
   if (!moving.value) return;
   try {
     const n = moving.value;
@@ -528,6 +594,45 @@ async function finishMove() {
     if (changed) notify(t("fileMoved"));
   } catch (e) {
     fail(e);
+  }
+}
+async function startBatchMove() {
+  if (batchBusy.value) return;
+  if (selectedIds.value.size > 500) {
+    fail(new Error("invalid_batch"));
+    return;
+  }
+  const trigger = dialogTrigger();
+  moving.value = undefined;
+  movingMany.value = [...selectedIds.value];
+  await loadMove("root");
+  openDialog(moveDialog.value, trigger);
+}
+async function trashSelected() {
+  if (batchBusy.value) return;
+  if (selectedIds.value.size > 500) {
+    fail(new Error("invalid_batch"));
+    return;
+  }
+  const ids = [...selectedIds.value];
+  if (
+    !(await ask(t("trashSelected"), {
+      hint: t("batchTrashHint").replace("{count}", String(ids.length)),
+      choices: [{ label: t("trashSelected"), value: "yes", danger: true }],
+    }))
+  )
+    return;
+  batchBusy.value = true;
+  try {
+    await api("/nodes/batch-trash", "POST", { ids });
+    selectedIds.value = new Set();
+    await load();
+    await refreshStorage();
+    notify(t("fileTrashed"));
+  } catch (error) {
+    fail(error);
+  } finally {
+    batchBusy.value = false;
   }
 }
 async function restoreNode(n: any) {
@@ -643,11 +748,35 @@ async function deleteShareRecord(s: any) {
   }
 }
 async function createBackup() {
+  if (backupBusy.value) return;
+  backupBusy.value = true;
   try {
     await api("/settings/backups", "POST", {});
     backupRows.value = await api("/settings/backups");
   } catch (e) {
     fail(e);
+  } finally {
+    backupBusy.value = false;
+  }
+}
+async function deleteBackup(name: string) {
+  if (
+    backupBusy.value ||
+    !(await ask(t("deleteBackup"), {
+      hint: `${name}\n${t("deleteBackupHint")}`,
+      choices: [{ label: t("deleteBackup"), value: "yes", danger: true }],
+    }))
+  )
+    return;
+  backupBusy.value = true;
+  try {
+    await api(`/settings/backups/${encodeURIComponent(name)}`, "DELETE");
+    backupRows.value = await api("/settings/backups");
+    notify(t("backupDeleted"));
+  } catch (error) {
+    fail(error);
+  } finally {
+    backupBusy.value = false;
   }
 }
 const preview = ref<Node>(),
@@ -1116,7 +1245,6 @@ onUnmounted(() => {
     </section>
     <section class="login-form-wrap">
       <form class="login-form" @submit.prevent="signIn">
-        <span class="eyebrow">YOUR PERSONAL CLOUD</span>
         <h2>{{ t("login") }}</h2>
         <p class="muted">{{ t("loginHint") }}</p>
         <label for="password">{{ t("password") }}</label><input
@@ -1213,7 +1341,6 @@ onUnmounted(() => {
             >{{ bytes(system.storage.used) }} /
             {{ bytes(system.storage.total) }}</small
           >
-          <p>{{ t("storageHint") }}</p>
         </section>
         <div class="sidebar-actions">
           <button
@@ -1279,7 +1406,6 @@ onUnmounted(() => {
         <span v-else class="topbar-label">{{ t("brand") }}</span>
         <div class="topbar-status">
           <span class="online-dot"></span><span>{{ t("secure") }}</span>
-          <div class="avatar"><Cloud aria-hidden="true" :size="20" /></div>
         </div>
       </header>
       <div
@@ -1312,18 +1438,21 @@ onUnmounted(() => {
                 }}
               </button>
             </div>
-            <span v-else class="eyebrow">YOUR PERSONAL CLOUD</span>
             <h1 id="workspace-title" tabindex="-1">{{ title }}</h1>
             <p v-if="view === 'files'" class="muted">
               {{ nodes.length }} {{ locale === "zh" ? "个项目" : "items" }}
               <span class="dot-separator">·</span> {{ t("welcome") }}
             </p>
             <p v-if="view === 'trash'" class="muted">{{ t("trashHint") }}</p>
+            <p v-if="view === 'shares'" class="muted">
+              {{ t("emptySharesHint") }}
+            </p>
           </div>
           <div class="heading-actions">
             <button
               v-if="view === 'files'"
               :aria-label="t('newFolder')"
+              class="new-folder-button"
               @click="makeFolder"
             >
               <FolderPlus aria-hidden="true" :size="20" /><span>{{
@@ -1369,6 +1498,16 @@ onUnmounted(() => {
               <button class="text-button" @click="selectedIds = new Set()">
                 {{ t("clearSelection") }}
               </button>
+              <button :disabled="batchBusy" @click="startBatchMove">
+                <Folder aria-hidden="true" :size="16" />{{ t("moveSelected") }}
+              </button>
+              <button
+                class="danger"
+                :disabled="batchBusy"
+                @click="trashSelected"
+              >
+                <Trash2 aria-hidden="true" :size="16" />{{ t("trashSelected") }}
+              </button>
             </div>
             <div v-else class="filter-label">
               <Folder aria-hidden="true" :size="16" />{{
@@ -1376,12 +1515,18 @@ onUnmounted(() => {
               }}
             </div>
             <div class="toolbar-right">
-              <select v-model="sort" :aria-label="t('sortBy')">
-                <option value="name">{{ t("name") }}</option>
-                <option value="size">{{ t("size") }}</option>
-                <option value="type">{{ t("type") }}</option>
-                <option value="mtime">{{ t("modified") }}</option></select
-              ><button
+              <div class="sort-control">
+                <label for="file-sort">{{ t("sortBy") }}</label><select
+                  id="file-sort"
+                  v-model="sort"
+                >
+                  <option value="name">{{ t("name") }}</option>
+                  <option value="size">{{ t("size") }}</option>
+                  <option value="type">{{ t("type") }}</option>
+                  <option value="mtime">{{ t("modified") }}</option>
+                </select>
+              </div>
+              <button
                 class="icon-button"
                 :aria-label="t('sortDirection')"
                 @click="desc = !desc"
@@ -1408,28 +1553,12 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <button
-            v-if="view === 'files'"
-            class="upload-dropzone"
-            :class="{ dragging: drop }"
-            @click="fileInput?.click()"
-          >
-            <UploadIcon aria-hidden="true" :size="24" />
-            <span>{{ active ? t("uploading") : t("dropzoneHint") }}</span>
-            <span
-              v-if="active"
-              class="dropzone-progress meter"
-              role="progressbar"
-              :aria-label="t('transfers')"
-              :aria-valuenow="uploadProgress"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              ><i :style="{ width: uploadProgress + '%' }"></i
-            ></span>
-            <small v-if="active">{{ uploadProgress }}%</small>
-          </button>
+
           <div v-if="loading" class="empty"><span class="spinner"></span></div>
-          <div v-else-if="!nodes.length" class="empty">
+          <div
+            v-else-if="!nodes.length && (view !== 'files' || !!search)"
+            class="empty"
+          >
             <div class="empty-orbit">
               <img src="/Logo.png" :alt="t('mascotAlt')" />
             </div>
@@ -1467,6 +1596,26 @@ onUnmounted(() => {
               ><span>{{ t("modified") }}</span
               ><span></span>
             </div>
+            <button
+              v-if="view === 'files' && !search"
+              class="upload-dropzone"
+              :class="{ dragging: drop }"
+              @click="fileInput?.click()"
+            >
+              <UploadIcon aria-hidden="true" :size="24" />
+              <span>{{ active ? t("uploading") : t("dropzoneHint") }}</span>
+              <span
+                v-if="active"
+                class="dropzone-progress meter"
+                role="progressbar"
+                :aria-label="t('transfers')"
+                :aria-valuenow="uploadProgress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                ><i :style="{ width: uploadProgress + '%' }"></i
+              ></span>
+              <small v-if="active">{{ uploadProgress }}%</small>
+            </button>
             <article
               v-for="n in nodes"
               :key="n.id"
@@ -1486,13 +1635,11 @@ onUnmounted(() => {
               />
               <button class="file-main" @click="openNode(n)">
                 <div class="file-symbol">
-                  <img
+                  <MediaThumbnail
                     v-if="grid && [Image, Film].includes(icon(n))"
-                    :src="`/api/nodes/${n.id}/thumbnail`"
-                    alt=""
-                    @error="
-                      ($event.target as HTMLImageElement).style.display = 'none'
-                    "
+                    :id="n.id"
+                    :name="n.name"
+                    :video="icon(n) === Film"
                   /><component
                     aria-hidden="true"
                     :is="icon(n)"
@@ -1575,7 +1722,6 @@ onUnmounted(() => {
               <img src="/Logo.png" :alt="t('mascotAlt')" />
             </div>
             <h2>{{ t("emptyShares") }}</h2>
-            <p>{{ t("emptySharesHint") }}</p>
             <RouterLink to="/files/root" class="button primary">{{
               t("browseFiles")
             }}</RouterLink>
@@ -1717,7 +1863,7 @@ onUnmounted(() => {
               <h2>
                 <HardDrive aria-hidden="true" :size="20" />{{ t("backups") }}
               </h2>
-              <button @click="createBackup">
+              <button :disabled="backupBusy" @click="createBackup">
                 <RefreshCw aria-hidden="true" :size="16" />{{
                   t("createBackup")
                 }}
@@ -1725,14 +1871,22 @@ onUnmounted(() => {
             </div>
             <p class="muted">{{ t("backupHint") }}</p>
             <div v-for="b in backupRows" :key="b" class="data-row">
-              <File aria-hidden="true" :size="20" /><span class="grow mono">{{
-                b
-              }}</span
+              <File aria-hidden="true" :size="20" /><span
+                class="grow mono backup-name"
+                >{{ b }}</span
               ><a class="button" :href="'/api/settings/backups/' + b"
                 ><ArrowDownToLine aria-hidden="true" :size="16" />{{
                   t("download")
                 }}</a
               >
+              <button
+                class="danger"
+                :disabled="backupBusy"
+                :aria-label="t('deleteBackup') + ' ' + b"
+                @click="deleteBackup(b)"
+              >
+                <Trash2 :size="16" aria-hidden="true" />{{ t("deleteBackup") }}
+              </button>
             </div>
           </section>
           <section class="panel full">
@@ -1924,6 +2078,28 @@ onUnmounted(() => {
     </div>
   </Teleport>
   <dialog
+    ref="logoutDialog"
+    class="dialog"
+    aria-labelledby="logout-title"
+    aria-describedby="logout-description"
+    @cancel.prevent="!logoutBusy && logoutDialog?.close()"
+    @close="restoreDialogFocus"
+  >
+    <h2 id="logout-title">{{ t(logoutBusy ? "loggingOut" : "logout") }}</h2>
+    <p id="logout-description" role="status">
+      <span v-if="logoutBusy" class="spinner"></span
+      >{{ logoutError || t("logoutHint") }}
+    </p>
+    <div v-if="logoutError" class="dialog-actions">
+      <button @click="logoutDialog?.close()">{{ t("back") }}</button><button
+        class="primary"
+        @click="signOut"
+      >
+        {{ t("retry") }}
+      </button>
+    </div>
+  </dialog>
+  <dialog
     ref="modal"
     class="dialog"
     aria-labelledby="modal-title"
@@ -2011,7 +2187,9 @@ onUnmounted(() => {
         <X aria-hidden="true" :size="20" />
       </button>
     </div>
-    <p id="move-description" class="muted">{{ t("moveHint") }}</p>
+    <p id="move-description" class="muted">
+      {{ t(movingMany.length ? "batchMoveHint" : "moveHint") }}
+    </p>
     <div class="breadcrumbs">
       <button v-for="b in moveCrumbs" :key="b.id" @click="loadMove(b.id)">
         {{ b.id === "root" ? t("home") : b.name
@@ -2058,14 +2236,13 @@ onUnmounted(() => {
       </div>
       <div class="preview-content">
         <img v-if="mediaType === Image" :src="previewUrl" :alt="preview.name" />
-        <div v-else-if="mediaType === Film" class="video-details">
-          <img
-            :src="`/api/nodes/${preview.id}/thumbnail`"
-            alt=""
-            @error="($event.target as HTMLImageElement).style.display = 'none'"
-          /><Film aria-hidden="true" :size="56" />
-          <p>{{ t("videoHint") }}</p>
-        </div>
+        <MediaThumbnail
+          v-else-if="mediaType === Film"
+          :id="preview.id"
+          :name="preview.name"
+          video
+          preview
+        />
         <audio
           v-else-if="mediaType === Music"
           :src="previewUrl"

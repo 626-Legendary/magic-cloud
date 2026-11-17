@@ -45,6 +45,7 @@ impl Fixture {
         Self {
             dir,
             app: App {
+                thumbnails: Arc::new(thumbnails::Queue::default()),
                 core: Arc::new(Mutex::new(core)),
                 password: Arc::new(ph),
                 origin: Arc::new("https://cloud.test".into()),
@@ -1468,4 +1469,261 @@ fn mixed_backup_formats_are_sorted_and_pruned_by_time() {
             .file_type()
             .is_symlink()
     );
+}
+
+#[tokio::test]
+async fn deleting_backup_requires_auth_csrf_and_preserves_live_database() {
+    let f = Fixture::new();
+    let first = f.core().backup().unwrap();
+    let second = f.core().backup().unwrap();
+    let endpoint = format!("/api/settings/backups/{first}");
+    let (cookie, csrf) = f.auth().await;
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), None, None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), None)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), Some(&csrf))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), Some(&csrf))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(f.core().backup_names().unwrap(), vec![second]);
+    assert_eq!(
+        f.core()
+            .db
+            .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert_eq!(
+        f.request(
+            "DELETE",
+            "/api/settings/backups/not-a-backup.txt",
+            json!({}),
+            Some(&cookie),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn thumbnail_pending_cache_and_trash_cleanup() {
+    let f = Fixture::new();
+    let node = add_file(&mut f.core(), "root", "clip.mp4", b"video fixture");
+    let (cookie, csrf) = f.auth().await;
+    let url = format!("/api/nodes/{}/thumbnail", node.id);
+    assert_eq!(
+        f.request("GET", &url, json!({}), Some(&cookie), None)
+            .await
+            .0,
+        StatusCode::ACCEPTED
+    );
+    let key = thumbnails::key(&node);
+    let directory = f.dir.path().join(".magic-cloud/thumbnails");
+    fs::write(directory.join(format!("{key}.jpg")), b"cached cover").unwrap();
+    let legacy = hash(format!(
+        "{}:{}:{}:{}:{}:{}",
+        node.id, node.dev, node.ino, node.size, node.mtime, node.mtime_ns
+    ));
+    fs::write(directory.join(format!("{legacy}.jpg")), b"legacy cover").unwrap();
+    fs::write(directory.join(format!("{key}.failed")), b"failed").unwrap();
+    assert_eq!(
+        f.request("GET", &url, json!({}), Some(&cookie), None)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.request(
+            "DELETE",
+            &format!("/api/nodes/{}", node.id),
+            json!({}),
+            Some(&cookie),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(fs::read_dir(&directory).unwrap().next().is_none());
+    assert_eq!(
+        f.request("GET", &url, json!({}), Some(&cookie), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[test]
+fn batch_actions_keep_names_subtrees_and_fail_without_partial_changes() {
+    let f = Fixture::new();
+    let mut c = f.core();
+    let a = c.mkdir("root", "A").unwrap();
+    let b = c.mkdir("root", "B").unwrap();
+    let target = c.mkdir("root", "target").unwrap();
+    let first = add_file(&mut c, &a.id, "same.txt", b"first");
+    let second = add_file(&mut c, &b.id, "same.txt", b"second");
+    let existing = add_file(&mut c, &target.id, "same.txt", b"existing");
+    assert_eq!(
+        c.relocate_many(&[first.id.clone(), second.id.clone()], &target.id)
+            .unwrap(),
+        2
+    );
+    assert_eq!(c.node(&first.id).unwrap().name, "same (1).txt");
+    assert_eq!(c.node(&second.id).unwrap().name, "same (2).txt");
+    assert_eq!(
+        fs::read(f.dir.path().join(&existing.path)).unwrap(),
+        b"existing"
+    );
+    let child = add_file(&mut c, &a.id, "child.txt", b"child");
+    let child_path = child.path.clone();
+    assert!(c.trash_many(&[a.id.clone(), "missing-id".into()]).is_err());
+    assert!(!c.node(&a.id).unwrap().deleted);
+    assert!(f.dir.path().join(&child_path).exists());
+    assert!(c.relocate_many(std::slice::from_ref(&a.id), &a.id).is_err());
+    assert!(c.trash_many(&["root".into(), a.id.clone()]).is_err());
+    let key = thumbnails::key(&child);
+    fs::write(
+        f.dir
+            .path()
+            .join(format!(".magic-cloud/thumbnails/{key}.jpg")),
+        b"cover",
+    )
+    .unwrap();
+    assert_eq!(c.trash_many(&[a.id.clone(), child.id.clone()]).unwrap(), 1);
+    assert!(c.node(&child.id).unwrap().deleted);
+    assert!(
+        !f.dir
+            .path()
+            .join(format!(".magic-cloud/thumbnails/{key}.jpg"))
+            .exists()
+    );
+    c.restore(&a.id, None, "ask").unwrap();
+    assert_eq!(fs::read(f.dir.path().join(&child_path)).unwrap(), b"child");
+    assert_eq!(
+        c.relocate_many(&[a.id.clone(), child.id.clone()], &target.id)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        c.node(&child.id).unwrap().parent.as_deref(),
+        Some(a.id.as_str())
+    );
+    assert!(c.trash_many(&[]).is_err());
+}
+
+#[tokio::test]
+async fn batch_routes_require_csrf_and_operate_on_the_whole_selection() {
+    let f = Fixture::new();
+    let node = add_file(&mut f.core(), "root", "bulk.txt", b"bulk");
+    let target = f.core().mkdir("root", "destination").unwrap();
+    let (cookie, csrf) = f.auth().await;
+    let body = json!({"ids":[node.id],"parent":target.id});
+    assert_eq!(
+        f.request("POST", "/api/nodes/batch-move", body.clone(), None, None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        f.request(
+            "POST",
+            "/api/nodes/batch-move",
+            body.clone(),
+            Some(&cookie),
+            None
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        f.request(
+            "POST",
+            "/api/nodes/batch-move",
+            body,
+            Some(&cookie),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.core().node(&node.id).unwrap().parent.as_deref(),
+        Some(target.id.as_str())
+    );
+    assert_eq!(
+        f.request(
+            "POST",
+            "/api/nodes/batch-trash",
+            json!({"ids":[node.id]}),
+            Some(&cookie),
+            None
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        f.request(
+            "POST",
+            "/api/nodes/batch-trash",
+            json!({"ids":[node.id]}),
+            Some(&cookie),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(f.core().node(&node.id).unwrap().deleted);
+}
+
+#[tokio::test]
+async fn existing_successful_thumbnails_are_reused_after_upgrade() {
+    let f = Fixture::new();
+    let node = add_file(&mut f.core(), "root", "legacy.mp4", b"video fixture");
+    let legacy = hash(format!(
+        "{}:{}:{}:{}:{}:{}",
+        node.id, node.dev, node.ino, node.size, node.mtime, node.mtime_ns
+    ));
+    let directory = f.dir.path().join(".magic-cloud/thumbnails");
+    fs::write(directory.join(format!("{legacy}.jpg")), b"existing cover").unwrap();
+    let (cookie, _) = f.auth().await;
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/nodes/{}/thumbnail", node.id),
+            json!({}),
+            Some(&cookie),
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        fs::read(directory.join(format!("{}.jpg", thumbnails::key(&node)))).unwrap(),
+        b"existing cover"
+    );
+    assert!(!directory.join(format!("{legacy}.jpg")).exists());
 }

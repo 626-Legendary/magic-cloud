@@ -32,6 +32,7 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 #[derive(Clone)]
 struct App {
+    thumbnails: Arc<thumbnails::Queue>,
     core: Arc<Mutex<Core>>,
     password: Arc<String>,
     origin: Arc<String>,
@@ -403,6 +404,23 @@ async fn mkdir(State(a): State<App>, Json(v): Json<Create>) -> Result<Json<Node>
     a.run(move |c| c.mkdir(&v.parent, &v.name).map(Json)).await
 }
 #[derive(Deserialize)]
+struct BatchNodes {
+    ids: Vec<String>,
+}
+async fn batch_trash(State(a): State<App>, Json(v): Json<BatchNodes>) -> Result<Json<Value>> {
+    a.run(move |c| Ok(Json(json!({"count": c.trash_many(&v.ids)?}))))
+        .await
+}
+#[derive(Deserialize)]
+struct BatchMove {
+    ids: Vec<String>,
+    parent: String,
+}
+async fn batch_move(State(a): State<App>, Json(v): Json<BatchMove>) -> Result<Json<Value>> {
+    a.run(move |c| Ok(Json(json!({"count": c.relocate_many(&v.ids, &v.parent)?}))))
+        .await
+}
+#[derive(Deserialize)]
 struct Relocate {
     parent: String,
     name: String,
@@ -626,7 +644,11 @@ async fn chunk(
     .await
 }
 async fn complete(State(a): State<App>, Path(id): Path<String>) -> Result<Json<Node>> {
-    a.run(move |c| c.complete(&id).map(Json)).await
+    let node = a.run(move |c| c.complete(&id)).await?;
+    if thumbnails::supported(&node.name) {
+        a.thumbnails.enqueue(node.id.clone());
+    }
+    Ok(Json(node))
 }
 #[derive(Deserialize)]
 struct Strategy {
@@ -988,6 +1010,25 @@ async fn backup_download(
         .await?;
     send_file(f, out, h, false).await
 }
+async fn delete_backup(State(a): State<App>, Path(name): Path<String>) -> Result<Json<Value>> {
+    a.run(move |c| {
+        storage::name(&name)?;
+        if !name.ends_with(".db") {
+            return Err(Error::missing());
+        }
+        let path = format!(".magic-cloud/backups/{name}");
+        if !c.storage.exists(&path) {
+            return Err(Error::missing());
+        }
+        let file = c.storage.file(&path, libc::O_RDONLY)?;
+        if !file.metadata()?.is_file() {
+            return Err(Error::missing());
+        }
+        c.storage.remove(&path)?;
+        Ok(Json(json!({"ok":true})))
+    })
+    .await
+}
 fn is_page_route(path: &str) -> bool {
     if path == "/" {
         return true;
@@ -1038,6 +1079,8 @@ fn routes(a: App, static_dir: &str) -> Router {
         .route("/api/auth/session", get(session))
         .route("/api/auth/logout", post(logout))
         .route("/api/nodes", get(nodes).post(mkdir))
+        .route("/api/nodes/batch-trash", post(batch_trash))
+        .route("/api/nodes/batch-move", post(batch_move))
         .route(
             "/api/nodes/{id}",
             get(detail).patch(relocate).delete(remove),
@@ -1067,7 +1110,10 @@ fn routes(a: App, static_dir: &str) -> Router {
         .route("/api/settings", get(settings))
         .route("/api/settings/audit", get(audit))
         .route("/api/settings/backups", get(backups).post(backup))
-        .route("/api/settings/backups/{name}", get(backup_download))
+        .route(
+            "/api/settings/backups/{name}",
+            get(backup_download).delete(delete_backup),
+        )
         .route("/api/{*rest}", get(|| async { Error::missing() }))
         .fallback_service(tower_http::services::ServeDir::new(static_dir).fallback(pages))
         .layer(DefaultBodyLimit::max(CHUNK as usize))
@@ -1121,6 +1167,7 @@ async fn start() -> Result<()> {
         .map_err(|_| Error::bad("password_hash_error"))?
         .to_string();
     let a = App {
+        thumbnails: Arc::new(thumbnails::Queue::default()),
         core: Arc::new(Mutex::new(c)),
         password: Arc::new(ph),
         origin: Arc::new(origin),
@@ -1129,27 +1176,22 @@ async fn start() -> Result<()> {
             std::env::var("TRUSTED_PROXY_HOST").unwrap_or_else(|_| "cloudflared".into()),
         ),
     };
+    tokio::spawn(thumbnails::worker(a.clone()));
     let thumbnail_jobs = a.clone();
     tokio::spawn(async move {
-        loop {
-            if let Ok(ids) = thumbnail_jobs
-                .run(|c| {
-                    Ok(c.nodes()?
-                        .into_iter()
-                        .filter(|n| {
-                            !n.deleted && n.kind == "file" && thumbnails::supported(&n.name)
-                        })
-                        .map(|n| n.id)
-                        .collect::<Vec<_>>())
-                })
-                .await
-            {
-                for id in ids {
-                    let _ = thumbnails::thumbnail(State(thumbnail_jobs.clone()), Path(id)).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                }
+        if let Ok(ids) = thumbnail_jobs
+            .run(|c| {
+                Ok(c.nodes()?
+                    .into_iter()
+                    .filter(|n| !n.deleted && n.kind == "file" && thumbnails::supported(&n.name))
+                    .map(|n| n.id)
+                    .collect::<Vec<_>>())
+            })
+            .await
+        {
+            for id in ids {
+                thumbnail_jobs.thumbnails.enqueue(id);
             }
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
     let watchdog = a.clone();

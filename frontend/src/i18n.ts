@@ -2,6 +2,29 @@ import { ref } from "vue";
 export const locale = ref(localStorage.getItem("mc-locale") || "zh");
 export const theme = ref(localStorage.getItem("mc-theme") || "system");
 const en: Record<string, string> = {
+  alreadyInFolder: "Selected items are already in this folder.",
+  moveSelected: "Move selected",
+  trashSelected: "Move selected to trash",
+  batchMoveHint:
+    "Move the selected items here. Matching names are renamed automatically; existing files are kept.",
+  batchTrashHint:
+    "Move {count} selected items to trash? Affected shares will be revoked. You can restore the files from trash.",
+  invalid_batch: "Select between 1 and 500 items for a batch action.",
+  deleteBackup: "Delete backup",
+  deleteBackupHint:
+    "This permanently removes this database backup. It cannot be undone. Your current database and files will be kept.",
+  backupDeleted: "Backup deleted.",
+  loggingOut: "Signing out…",
+  logoutHint:
+    "Pausing uploads and confirming your session has ended. Please wait.",
+  logoutNotConfirmed:
+    "Sign-out could not be confirmed. Check your connection and try again.",
+  thumbnailPending: "Generating cover…",
+  thumbnailFailedShort: "Cover unavailable",
+  videoThumbnailPending:
+    "Generating the video cover. It will appear here automatically.",
+  videoThumbnailFailed:
+    "A cover could not be generated. You can still download the video to watch it.",
   folderCreated: "Folder created.",
   fileRenamed: "File renamed.",
   fileMoved: "File moved.",
@@ -145,7 +168,7 @@ const en: Record<string, string> = {
   overwrite: "Replace (old item goes to trash)",
   autoRename: "Keep both",
   details: "Details",
-  videoHint: "Static cover only. Download to watch this video.",
+  videoHint: "Video cover ready. Download the video to watch it.",
   readOnly: "Shared with you · Read only",
   back: "Back",
   home: "All files",
@@ -174,7 +197,6 @@ const en: Record<string, string> = {
   menu: "Open navigation",
   welcome: "What would you like to organize today?",
   stored: "stored",
-  storageHint: "Your files stay on your own drive.",
   privacy: "Your data. Your space. Your rules.",
   active: "Active",
   clearDone: "Clear finished",
@@ -199,6 +221,25 @@ const en: Record<string, string> = {
   chunks_in_flight: "Upload is still stopping. Please retry shortly.",
 };
 const zh: Record<string, string> = {
+  alreadyInFolder: "所选项目已经在这个文件夹中。",
+  moveSelected: "移动所选",
+  trashSelected: "所选移入回收站",
+  batchMoveHint:
+    "将所选项目移入目标文件夹。同名项目会自动重命名，已有文件会保留。",
+  batchTrashHint:
+    "将选中的 {count} 个项目移入回收站？受影响的分享会被撤销，文件可在回收站中恢复。",
+  invalid_batch: "批量操作每次请选择 1 至 500 个项目。",
+  deleteBackup: "删除备份",
+  deleteBackupHint:
+    "此数据库备份将被永久删除，无法撤销。当前数据库与原文件会保留。",
+  backupDeleted: "备份已删除。",
+  loggingOut: "正在退出登录…",
+  logoutHint: "正在暂停上传并确认会话已结束，请稍候。",
+  logoutNotConfirmed: "暂时无法确认退出登录已完成，请检查网络后重试。",
+  thumbnailPending: "正在生成封面…",
+  thumbnailFailedShort: "暂无封面",
+  videoThumbnailPending: "正在生成视频封面，完成后会自动显示。",
+  videoThumbnailFailed: "暂时无法生成封面，仍可下载视频观看。",
   folderCreated: "文件夹已经准备好啦。",
   fileRenamed: "名称已更新。",
   fileMoved: "文件已搬到新的位置。",
@@ -337,7 +378,7 @@ const zh: Record<string, string> = {
   overwrite: "覆盖（旧项目进入回收站）",
   autoRename: "自动重命名",
   details: "文件详情",
-  videoHint: "仅提供静态封面，下载后即可观看视频。",
+  videoHint: "视频封面已就绪，下载后即可观看视频。",
   readOnly: "与你分享 · 只读",
   back: "返回",
   home: "全部文件",
@@ -366,7 +407,6 @@ const zh: Record<string, string> = {
   menu: "打开导航",
   welcome: "今天想整理些什么呢？",
   stored: "已存储",
-  storageHint: "你的文件，始终留在你自己的硬盘。",
   privacy: "数据由你掌控，空间由你定义。",
   active: "进行中",
   clearDone: "清除已结束任务",
