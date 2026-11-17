@@ -85,7 +85,7 @@ LAN_ORIGIN=http://192.168.0.101:5080
  sudo journalctl -u magic-cloud-storage.service -n 100
 ```
 
-代码提供 [API 契约](docs/api.md)、[架构和数据模型](docs/architecture.md)、[安全边界](docs/security.md)、[升级与恢复步骤](docs/operations.md) 和 [验收清单](docs/acceptance.md)。实际执行的验证与限制记录在 [验证结果](docs/validation.md)。
+代码提供 [API 契约](docs/api.md)、[架构和数据模型](docs/architecture.md)、[前端设计实现](docs/ui-design.md)、[安全边界](docs/security.md)、[升级与恢复步骤](docs/operations.md) 和 [验收清单](docs/acceptance.md)。实际执行的验证与限制记录在 [验证结果](docs/validation.md)。
 
 Cloudflare 单次请求限制取决于账户计划，16 MiB 分片用于减少单次请求体大小；部署前应检查[官方上传限制](https://developers.cloudflare.com/network/maximum-upload-size/)及当前适用条款。流式和 Range 下载不保证 Cloudflare 公网 10 GB 下载或视频分发可用，局域网 IP 入口不依赖 Cloudflare。
 

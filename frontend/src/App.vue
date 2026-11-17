@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { copyText } from "./browser";
 import heroImage from "./assets/Hero.png";
+import { fileKind } from "./file-kind";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -46,6 +47,9 @@ import {
   Copy,
   ExternalLink,
   RefreshCw,
+  FileSpreadsheet,
+  Info,
+  TriangleAlert,
 } from "lucide-vue-next";
 import { api, ApiError, setCsrf, bytes, date, type Node } from "./api";
 import { locale, theme, t, applyPreferences } from "./i18n";
@@ -75,6 +79,130 @@ const authenticated = ref(false),
   error = ref(""),
   toast = ref(""),
   sidebar = ref(false);
+const compactQuery = matchMedia("(max-width: 767px)");
+const compactLayout = ref(compactQuery.matches);
+const sidebarElement = ref<HTMLElement>();
+const navigationButton = ref<HTMLButtonElement>();
+const searchInput = ref<HTMLInputElement>();
+const selectedIds = ref(new Set<string>());
+const allSelected = computed(
+  () =>
+    nodes.value.length > 0 &&
+    nodes.value.every((n) => selectedIds.value.has(n.id)),
+);
+const toastTone = ref<"success" | "info" | "warning" | "danger">("success");
+const toastHost = ref<HTMLElement | string>("body");
+let menuTrigger: HTMLElement | null = null;
+let drawerReturnFocus: HTMLElement | null = null;
+const dialogTriggers = new WeakMap<HTMLDialogElement, HTMLElement>();
+function dialogTrigger() {
+  const active = document.activeElement as HTMLElement | null;
+  return active?.closest(".context-menu") ? menuTrigger : active;
+}
+function openDialog(dialog?: HTMLDialogElement, trigger = dialogTrigger()) {
+  if (!dialog) return;
+  if (trigger) dialogTriggers.set(dialog, trigger);
+  dialog.showModal();
+}
+function restoreDialogFocus(event: Event) {
+  const target = dialogTriggers.get(event.target as HTMLDialogElement);
+  if (!document.querySelector("dialog[open]")) {
+    if (target?.isConnected) target.focus();
+    else document.getElementById("workspace-title")?.focus();
+  }
+}
+function selectNode(id: string) {
+  const ids = new Set(selectedIds.value);
+  if (ids.has(id)) ids.delete(id);
+  else ids.add(id);
+  selectedIds.value = ids;
+}
+function selectAll() {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(nodes.value.map((n) => n.id));
+}
+function openFileMenu(id: string, event: Event) {
+  const target = event.currentTarget as HTMLElement;
+  menuTrigger = target.matches("button")
+    ? target
+    : target.querySelector<HTMLButtonElement>(".file-actions > button");
+  menu.value = menu.value === id ? "" : id;
+}
+function menuKeydown(event: KeyboardEvent) {
+  const buttons = Array.from(
+    (event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>(
+      "button",
+    ),
+  );
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    menu.value = "";
+    menuTrigger?.focus();
+  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    event.preventDefault();
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? buttons.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) %
+            buttons.length;
+    buttons[next]?.focus();
+  }
+}
+function pageKeydown(event: KeyboardEvent) {
+  if (compactLayout.value && sidebar.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      sidebar.value = false;
+    }
+    if (event.key === "Tab") {
+      const items = Array.from(
+        sidebarElement.value?.querySelectorAll<HTMLElement>(
+          "a[href],button:not(:disabled)",
+        ) || [],
+      );
+      const first = items[0],
+        last = items.at(-1);
+      if (!sidebarElement.value?.contains(document.activeElement)) {
+        event.preventDefault();
+        first?.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    return;
+  }
+  const active = document.activeElement;
+  if (
+    event.key === "/" &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !document.querySelector("dialog[open]") &&
+    !(
+      active instanceof HTMLElement &&
+      (active.matches("input,textarea,select") || active.isContentEditable)
+    )
+  ) {
+    if (searchInput.value) {
+      event.preventDefault();
+      searchInput.value.focus();
+    }
+  }
+}
+function compactChanged() {
+  compactLayout.value = compactQuery.matches;
+  menu.value = "";
+  if (!compactLayout.value) sidebar.value = false;
+}
 const nodes = ref<Node[]>([]),
   breadcrumbs = ref<Node[]>([]),
   shareRows = ref<any[]>([]),
@@ -113,6 +241,18 @@ const active = computed(
     transfer.tasks.filter((x) => !["complete", "cancelled"].includes(x.status))
       .length,
 );
+const uploadProgress = computed(() => {
+  const tasks = transfer.tasks.filter(
+    (x) => !["complete", "cancelled"].includes(x.status),
+  );
+  const total = tasks.reduce((sum, x) => sum + x.size, 0);
+  return total
+    ? Math.min(
+        100,
+        Math.floor((tasks.reduce((sum, x) => sum + x.done, 0) / total) * 100),
+      )
+    : 0;
+});
 const modal = ref<HTMLDialogElement>(),
   modalTitle = ref(""),
   modalHint = ref(""),
@@ -128,6 +268,7 @@ async function ask(
     choices?: { label: string; value: string; danger?: boolean }[];
   } = {},
 ): Promise<string | null> {
+  const trigger = dialogTrigger();
   modalTitle.value = title;
   modalHint.value = options.hint || "";
   modalInput.value = options.input !== undefined;
@@ -136,7 +277,7 @@ async function ask(
     { label: t("confirm"), value: "yes" },
   ];
   await nextTick();
-  modal.value?.showModal();
+  openDialog(modal.value, trigger);
   return new Promise((resolve) => {
     resolveModal = resolve;
   });
@@ -156,10 +297,18 @@ function fail(e: unknown) {
   }
 }
 let toastTimer: ReturnType<typeof setTimeout>;
-function notify(value: string) {
-  toast.value = value;
+function dismissToast() {
+  toast.value = "";
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 4500);
+}
+function notify(value: string, tone: typeof toastTone.value = "success") {
+  toast.value = value;
+  toastTone.value = tone;
+  toastHost.value =
+    document.querySelector<HTMLDialogElement>("dialog[open]") || "body";
+  clearTimeout(toastTimer);
+  if (tone === "success" || tone === "info")
+    toastTimer = setTimeout(() => (toast.value = ""), 4500);
 }
 let loadVersion = 0;
 async function load() {
@@ -194,6 +343,11 @@ async function load() {
       const data = await api("/nodes?" + params);
       if (version === loadVersion) {
         nodes.value = data.nodes;
+        selectedIds.value = new Set(
+          [...selectedIds.value].filter((id) =>
+            nodes.value.some((n) => n.id === id),
+          ),
+        );
         breadcrumbs.value = data.breadcrumbs;
       }
     } else if (view.value === "shares") shareRows.value = await api("/shares");
@@ -259,26 +413,20 @@ async function refreshStorage() {
   }
 }
 function icon(n: Node) {
-  if (n.kind === "folder") return Folder;
-  const ext = n.name.split(".").pop()?.toLowerCase() || "";
-  if (/^(png|jpe?g|gif|webp|avif|bmp|svg)$/.test(ext)) return Image;
-  if (/^(mp4|mkv|mov|webm|avi|m4v)$/.test(ext)) return Film;
-  if (/^(mp3|wav|ogg|flac|m4a|aac)$/.test(ext)) return Music;
-  if (/^(pdf|txt|md|rs|js|ts|json|csv|py|html|css)$/.test(ext)) return FileText;
-  return File;
+  return {
+    folder: Folder,
+    image: Image,
+    video: Film,
+    audio: Music,
+    pdf: FileText,
+    word: FileText,
+    excel: FileSpreadsheet,
+    document: FileText,
+    unknown: File,
+  }[fileKind(n)];
 }
 function kindClass(n: Node) {
-  return n.kind === "folder"
-    ? "folder"
-    : icon(n) === Image
-      ? "image"
-      : icon(n) === Film
-        ? "video"
-        : icon(n) === Music
-          ? "audio"
-          : n.name.endsWith(".pdf")
-            ? "pdf"
-            : "document";
+  return fileKind(n);
 }
 async function conflict(fn: (strategy: string) => Promise<unknown>) {
   try {
@@ -303,6 +451,7 @@ async function makeFolder() {
   try {
     await api("/nodes", "POST", { parent: parent.value, name });
     await load();
+    notify(t("folderCreated"));
   } catch (e) {
     fail(e);
   }
@@ -312,10 +461,11 @@ async function renameNode(n: Node) {
   const name = await ask(t("rename"), { input: n.name, hint: t("newName") });
   if (!name || name === n.name) return;
   try {
-    await conflict((strategy) =>
+    const changed = await conflict((strategy) =>
       api(`/nodes/${n.id}`, "PATCH", { name, parent: n.parent, strategy }),
     );
     await load();
+    if (changed) notify(t("fileRenamed"));
   } catch (e) {
     fail(e);
   }
@@ -333,6 +483,7 @@ async function deleteNode(n: Node) {
     await api(`/nodes/${n.id}`, "DELETE");
     await load();
     await refreshStorage();
+    notify(t("fileTrashed"));
   } catch (e) {
     fail(e);
   }
@@ -355,17 +506,18 @@ async function loadMove(id: string) {
   }
 }
 async function startMove(n: Node) {
+  const trigger = dialogTrigger();
   menu.value = "";
   moving.value = n;
   await loadMove("root");
-  moveDialog.value?.showModal();
+  openDialog(moveDialog.value, trigger);
 }
 async function finishMove() {
   if (!moving.value) return;
   try {
     const n = moving.value;
     moveDialog.value?.close();
-    await conflict((strategy) =>
+    const changed = await conflict((strategy) =>
       api(`/nodes/${n.id}`, "PATCH", {
         parent: moveParent.value,
         name: n.name,
@@ -373,16 +525,18 @@ async function finishMove() {
       }),
     );
     await load();
+    if (changed) notify(t("fileMoved"));
   } catch (e) {
     fail(e);
   }
 }
 async function restoreNode(n: any) {
   try {
-    await conflict((strategy) =>
+    const changed = await conflict((strategy) =>
       api(`/trash/${n.id}/restore`, "POST", { strategy }),
     );
     await load();
+    if (changed) notify(t("fileRestored"));
   } catch (e) {
     fail(e);
   }
@@ -399,6 +553,7 @@ async function purgeNode(n: any) {
     await api(`/trash/${n.id}`, "DELETE");
     await load();
     await refreshStorage();
+    notify(t("filePurged"));
   } catch (e) {
     fail(e);
   }
@@ -414,6 +569,7 @@ async function emptyTrash() {
     await api("/trash", "DELETE");
     await load();
     await refreshStorage();
+    notify(t("trashCleared"));
   } catch (e) {
     fail(e);
   }
@@ -431,13 +587,14 @@ async function days(): Promise<number | null | undefined> {
   return Math.floor(Date.now() / 1000 + num * 86400);
 }
 async function shareNode(n: Node) {
+  const trigger = dialogTrigger();
   menu.value = "";
   try {
     const expires = await days();
     if (expires === undefined) return;
     const data = await api("/shares", "POST", { root: n.id, expires });
     shareLink.value = location.origin + data.url;
-    shareDialog.value?.showModal();
+    openDialog(shareDialog.value, trigger);
   } catch (e) {
     fail(e);
   }
@@ -502,6 +659,7 @@ const previewUrl = computed(() =>
   preview.value ? `/api/nodes/${preview.value.id}/download?inline=true` : "",
 );
 async function openNode(n: Node) {
+  const trigger = dialogTrigger();
   menu.value = "";
   if (n.kind === "folder") {
     search.value = "";
@@ -511,7 +669,7 @@ async function openNode(n: Node) {
   preview.value = n;
   previewText.value = "";
   previewError.value = "";
-  previewDialog.value?.showModal();
+  openDialog(previewDialog.value, trigger);
   if (
     ![Image, Film, Music].includes(icon(n)) &&
     !n.name.toLowerCase().endsWith(".pdf")
@@ -528,6 +686,8 @@ function closePreview() {
   previewDialog.value?.close();
 }
 function download(n: Node) {
+  menu.value = "";
+  notify(t("downloadStarted"), "info");
   window.location.assign(`/api/nodes/${n.id}/download`);
 }
 function uploadSelected(event: Event) {
@@ -665,6 +825,31 @@ watch(search, () => {
 });
 watch([sort, desc], () => void load());
 watch(grid, () => localStorage.setItem("mc-grid", String(grid.value)));
+watch(menu, async (id) => {
+  if (!id) return;
+  await nextTick();
+  const panel = document.getElementById(`file-menu-${id}`);
+  if (panel && panel.getBoundingClientRect().bottom > innerHeight - 16) {
+    panel.style.top = "auto";
+    panel.style.bottom = "100%";
+  }
+  panel?.querySelector<HTMLButtonElement>("button")?.focus();
+});
+watch(sidebar, async (open) => {
+  document.body.classList.toggle("drawer-open", open && compactLayout.value);
+  if (open && compactLayout.value) {
+    drawerReturnFocus = document.activeElement as HTMLElement;
+    await nextTick();
+    sidebarElement.value?.querySelector<HTMLElement>("a[href],button")?.focus();
+  } else if (compactLayout.value && drawerReturnFocus?.isConnected) {
+    await nextTick();
+    drawerReturnFocus.focus();
+    drawerReturnFocus = null;
+  }
+});
+watch(authenticated, (value) => {
+  if (!value) sidebar.value = false;
+});
 watch([locale, theme], applyPreferences);
 watch(
   [view, locale],
@@ -679,6 +864,7 @@ watch(
 watch(
   () => route.fullPath,
   () => {
+    selectedIds.value = new Set();
     search.value = "";
     void load();
   },
@@ -693,6 +879,8 @@ onMounted(async () => {
   applyPreferences();
   systemTheme.addEventListener("change", applyPreferences);
   window.addEventListener("mc-files-changed", changed);
+  compactQuery.addEventListener("change", compactChanged);
+  document.addEventListener("keydown", pageKeydown);
   if (view.value === "public") {
     checking.value = false;
     await load();
@@ -714,6 +902,9 @@ onMounted(async () => {
 onUnmounted(() => {
   systemTheme.removeEventListener("change", applyPreferences);
   window.removeEventListener("mc-files-changed", changed);
+  compactQuery.removeEventListener("change", compactChanged);
+  document.removeEventListener("keydown", pageKeydown);
+  document.body.classList.remove("drawer-open");
   clearTimeout(searchTimer);
   clearTimeout(toastTimer);
 });
@@ -731,15 +922,21 @@ onUnmounted(() => {
           class="icon-button"
           :aria-label="t('language')"
           @click="locale = locale === 'zh' ? 'en' : 'zh'"
+          :data-tooltip="t('language')"
         >
-          <Languages :size="20" />
+          <Languages aria-hidden="true" :size="20" />
         </button>
         <button
           class="icon-button"
           :aria-label="t('appearance')"
           @click="theme = theme === 'dark' ? 'light' : 'dark'"
+          :data-tooltip="t('appearance')"
         >
-          <Sun v-if="theme === 'dark'" :size="20" /><Moon v-else :size="20" />
+          <Sun aria-hidden="true" v-if="theme === 'dark'" :size="20" /><Moon
+            aria-hidden="true"
+            v-else
+            :size="20"
+          />
         </button>
       </div>
     </header>
@@ -755,7 +952,9 @@ onUnmounted(() => {
       <h1 id="not-found-title">{{ t("pageNotFoundTitle") }}</h1>
       <p>{{ t("pageNotFoundHint") }}</p>
       <RouterLink to="/" class="button primary"
-        ><ArrowLeft :size="20" />{{ t("returnHome") }}</RouterLink
+        ><ArrowLeft aria-hidden="true" :size="20" />{{
+          t("returnHome")
+        }}</RouterLink
       >
     </section>
     <footer class="not-found-footer">
@@ -770,13 +969,14 @@ onUnmounted(() => {
     <header class="public-header">
       <a href="/"
         ><img src="/Logo.png" alt="" /><b>{{ t("brand") }}</b></a
-      ><span><ShieldCheck :size="16" />{{ t("readOnly") }}</span
+      ><span
+        ><ShieldCheck aria-hidden="true" :size="16" />{{ t("readOnly") }}</span
       ><button
         :aria-label="t('language')"
         :title="t('language')"
         @click="locale = locale === 'zh' ? 'en' : 'zh'"
       >
-        <Languages :size="18" />
+        <Languages aria-hidden="true" :size="20" />
       </button>
     </header>
     <section
@@ -786,6 +986,7 @@ onUnmounted(() => {
     >
       <div class="share-error-icon">
         <component
+          aria-hidden="true"
           :is="publicError === 'unavailable' ? Link2Off : WifiOff"
           :size="34"
         />
@@ -810,10 +1011,10 @@ onUnmounted(() => {
       </p>
       <div class="share-error-actions">
         <button v-if="route.query.node" @click="router.replace(route.path)">
-          <ArrowLeft :size="16" />{{ t("shareHome") }}
+          <ArrowLeft aria-hidden="true" :size="16" />{{ t("shareHome") }}
         </button>
         <button @click="load">
-          <RefreshCw :size="16" />{{ t("checkAgain") }}
+          <RefreshCw aria-hidden="true" :size="16" />{{ t("checkAgain") }}
         </button>
         <RouterLink class="button primary" to="/">{{ t("goHome") }}</RouterLink>
       </div>
@@ -823,7 +1024,7 @@ onUnmounted(() => {
       <h1>{{ publicData.root.name || t("brand") }}</h1>
       <div class="toolbar">
         <button v-if="route.query.node" @click="router.push(route.path)">
-          <ArrowLeft :size="16" />{{ t("back") }}</button
+          <ArrowLeft aria-hidden="true" :size="16" />{{ t("back") }}</button
         ><span>{{ publicData.node.name }}</span>
       </div>
       <template v-if="publicData.node.kind === 'folder'"
@@ -833,13 +1034,17 @@ onUnmounted(() => {
           class="public-file"
           @click="publicOpen(n)"
         >
-          <component :is="icon(n)" :class="kindClass(n)" :size="26" /><strong>{{
-            n.name
-          }}</strong
+          <component
+            aria-hidden="true"
+            :is="icon(n)"
+            :class="kindClass(n)"
+            :size="24"
+          /><strong>{{ n.name }}</strong
           ><small>{{ n.kind === "folder" ? t("folder") : bytes(n.size) }}</small
           ><component
+            aria-hidden="true"
             :is="n.kind === 'folder' ? ChevronRight : ArrowDownToLine"
-            :size="18"
+            :size="20"
           />
         </button>
         <p v-if="!publicData.nodes.length" class="muted">
@@ -848,6 +1053,7 @@ onUnmounted(() => {
       >
       <div v-else class="public-single">
         <component
+          aria-hidden="true"
           :is="icon(publicData.node)"
           :size="70"
           :class="kindClass(publicData.node)"
@@ -857,7 +1063,7 @@ onUnmounted(() => {
           {{ bytes(publicData.node.size) }} · {{ date(publicData.node.mtime) }}
         </p>
         <button class="primary" @click="publicOpen(publicData.node)">
-          <ArrowDownToLine :size="18" />{{ t("download") }}
+          <ArrowDownToLine aria-hidden="true" :size="20" />{{ t("download") }}
         </button>
       </div>
     </section>
@@ -870,12 +1076,16 @@ onUnmounted(() => {
         :title="t('language')"
         @click="locale = locale === 'zh' ? 'en' : 'zh'"
       >
-        <Languages :size="18" /></button
+        <Languages aria-hidden="true" :size="20" /></button
       ><button
         :aria-label="t('appearance')"
         @click="theme = theme === 'dark' ? 'light' : 'dark'"
       >
-        <component :is="theme === 'dark' ? Sun : Moon" :size="18" />
+        <component
+          aria-hidden="true"
+          :is="theme === 'dark' ? Sun : Moon"
+          :size="20"
+        />
       </button>
     </div>
     <section class="login-brand">
@@ -901,7 +1111,7 @@ onUnmounted(() => {
         <p class="hero-support">{{ t("heroSupport") }}</p>
       </div>
       <div class="privacy-pill">
-        <ShieldCheck :size="16" />{{ t("secure") }}
+        <ShieldCheck aria-hidden="true" :size="16" />{{ t("secure") }}
       </div>
     </section>
     <section class="login-form-wrap">
@@ -917,17 +1127,19 @@ onUnmounted(() => {
           required
           autofocus
           :placeholder="t('password')"
+          :aria-invalid="!!error"
+          :aria-describedby="error ? 'login-error' : undefined"
         />
-        <div v-if="error" role="alert" class="notice error">
-          <AlertCircle :size="16" />{{ error }}
+        <div v-if="error" id="login-error" role="alert" class="notice error">
+          <AlertCircle aria-hidden="true" :size="16" />{{ error }}
         </div>
         <button class="primary" :disabled="loginBusy || !password">
           <span v-if="loginBusy" class="spinner"></span
           ><span v-else>{{ t("login") }}</span
-          ><ChevronRight :size="18" />
+          ><ChevronRight aria-hidden="true" :size="20" />
         </button>
         <p class="login-privacy">
-          <ShieldCheck :size="16" />{{ t("privacy") }}
+          <ShieldCheck aria-hidden="true" :size="16" />{{ t("privacy") }}
         </p>
       </form>
       <footer class="login-footer">
@@ -937,8 +1149,31 @@ onUnmounted(() => {
     </section>
   </main>
   <div v-else class="app-shell" @click="menu = ''">
-    <div v-if="sidebar" class="sidebar-backdrop" @click="sidebar = false"></div>
-    <aside class="sidebar" :class="{ open: sidebar }">
+    <div
+      v-if="sidebar && compactLayout"
+      class="sidebar-backdrop"
+      @click="sidebar = false"
+      aria-hidden="true"
+    ></div>
+    <aside
+      ref="sidebarElement"
+      id="navigation-drawer"
+      class="sidebar"
+      :class="{ open: sidebar }"
+      :inert="compactLayout && !sidebar"
+      :role="compactLayout && sidebar ? 'dialog' : undefined"
+      :aria-modal="compactLayout && sidebar ? true : undefined"
+      :aria-label="t('navigation')"
+    >
+      <button
+        v-if="compactLayout"
+        class="icon-button drawer-close"
+        :aria-label="t('closeNavigation')"
+        @click="sidebar = false"
+        :data-tooltip="t('closeNavigation')"
+      >
+        <X aria-hidden="true" :size="20" />
+      </button>
       <a class="brand" href="/" @click.prevent="router.push('/files/root')"
         ><img src="/Logo.png" alt="" /><span
           >{{ t("brand") }}<small>YOUR PERSONAL CLOUD</small></span
@@ -952,7 +1187,7 @@ onUnmounted(() => {
           :key="item.key"
           :to="item.path"
           :class="{ active: view === item.key }"
-          ><component :is="item.icon" :size="20" /><span>{{
+          ><component aria-hidden="true" :is="item.icon" :size="20" /><span>{{
             t(item.key)
           }}</span></RouterLink
         >
@@ -960,7 +1195,9 @@ onUnmounted(() => {
       <div class="sidebar-bottom">
         <section v-if="system" class="storage-mini">
           <div>
-            <HardDrive :size="17" /><span>{{ t("storage") }}</span
+            <HardDrive aria-hidden="true" :size="20" /><span>{{
+              t("storage")
+            }}</span
             ><span class="online-dot"></span>
           </div>
           <div class="meter">
@@ -993,41 +1230,58 @@ onUnmounted(() => {
             "
           >
             <component
+              aria-hidden="true"
               :is="theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor"
-              :size="18"
+              :size="20"
             /></button
           ><button
             :aria-label="t('language')"
             :title="t('language')"
             @click="locale = locale === 'zh' ? 'en' : 'zh'"
           >
-            <Languages :size="18" /></button
+            <Languages aria-hidden="true" :size="20" /></button
           ><button :aria-label="t('logout')" @click="signOut">
-            <LogOut :size="18" />
+            <LogOut aria-hidden="true" :size="20" />
           </button>
         </div>
       </div>
     </aside>
-    <div class="workspace">
+    <div class="workspace" :inert="compactLayout && sidebar">
       <header class="topbar">
         <button
           class="mobile-only icon-button"
+          ref="navigationButton"
           :aria-label="t('menu')"
-          @click="sidebar = true"
+          aria-controls="navigation-drawer"
+          :aria-expanded="sidebar"
+          @click="sidebar = !sidebar"
+          :data-tooltip="t('menu')"
         >
-          <Menu :size="22" />
+          <Menu aria-hidden="true" :size="24" />
         </button>
         <div class="search" v-if="['files', 'recent'].includes(view)">
-          <Search :size="19" /><input
+          <Search aria-hidden="true" :size="20" /><input
+            ref="searchInput"
             v-model="search"
             :placeholder="t('search')"
             :aria-label="t('search')"
-          /><kbd>/</kbd>
+          /><button
+            v-if="search"
+            class="icon-button"
+            :aria-label="t('clearSearch')"
+            @click="
+              search = '';
+              searchInput?.focus();
+            "
+            :data-tooltip="t('clearSearch')"
+          >
+            <X aria-hidden="true" :size="16" /></button
+          ><kbd aria-hidden="true">/</kbd>
         </div>
         <span v-else class="topbar-label">{{ t("brand") }}</span>
         <div class="topbar-status">
           <span class="online-dot"></span><span>{{ t("secure") }}</span>
-          <div class="avatar"><Cloud :size="21" /></div>
+          <div class="avatar"><Cloud aria-hidden="true" :size="20" /></div>
         </div>
       </header>
       <div
@@ -1036,8 +1290,12 @@ onUnmounted(() => {
         @dragleave.self="drop = false"
         @drop.prevent="dropped"
       >
-        <div v-if="drop && view === 'files'" class="drop-overlay">
-          <UploadIcon :size="48" />
+        <div
+          v-if="drop && view === 'files'"
+          class="drop-overlay"
+          aria-hidden="true"
+        >
+          <UploadIcon aria-hidden="true" :size="48" />
           <h2>{{ t("drop") }}</h2>
         </div>
         <div class="page-heading">
@@ -1047,14 +1305,17 @@ onUnmounted(() => {
                 v-for="(b, i) in breadcrumbs"
                 :key="b.id"
                 @click="router.push('/files/' + b.id)"
+                :aria-current="
+                  i === breadcrumbs.length - 1 ? 'page' : undefined
+                "
               >
-                <ChevronRight v-if="i" :size="13" />{{
+                <ChevronRight aria-hidden="true" v-if="i" :size="16" />{{
                   b.id === "root" ? t("home") : b.name
                 }}
               </button>
             </div>
             <span v-else class="eyebrow">YOUR PERSONAL CLOUD</span>
-            <h1>{{ title }}</h1>
+            <h1 id="workspace-title" tabindex="-1">{{ title }}</h1>
             <p v-if="view === 'files'" class="muted">
               {{ nodes.length }} {{ locale === "zh" ? "个项目" : "items" }}
               <span class="dot-separator">·</span> {{ t("welcome") }}
@@ -1062,44 +1323,62 @@ onUnmounted(() => {
             <p v-if="view === 'trash'" class="muted">{{ t("trashHint") }}</p>
           </div>
           <div class="heading-actions">
-            <button v-if="view === 'files'" @click="makeFolder">
-              <FolderPlus :size="18" /><span>{{ t("newFolder") }}</span></button
+            <button
+              v-if="view === 'files'"
+              :aria-label="t('newFolder')"
+              @click="makeFolder"
+            >
+              <FolderPlus aria-hidden="true" :size="20" /><span>{{
+                t("newFolder")
+              }}</span></button
             ><button
               v-if="view === 'files'"
               class="primary"
               @click="fileInput?.click()"
             >
-              <UploadIcon :size="18" />{{ t("upload") }}</button
+              <UploadIcon aria-hidden="true" :size="20" />{{
+                t("upload")
+              }}</button
             ><button
               v-if="view === 'files'"
               class="folder-upload-button"
               @click="folderInput?.click()"
             >
-              <FolderUp :size="18" />{{ t("uploadFolder") }}</button
+              <FolderUp aria-hidden="true" :size="20" />{{
+                t("uploadFolder")
+              }}</button
             ><button
               v-if="view === 'trash' && trashRows.length"
               class="danger"
               @click="emptyTrash"
             >
-              <Trash2 :size="17" />{{ t("emptyTrash") }}
+              <Trash2 aria-hidden="true" :size="20" />{{ t("emptyTrash") }}
             </button>
           </div>
         </div>
         <div v-if="error" role="alert" class="notice error">
-          <AlertCircle :size="18" /><span>{{ error }}</span
+          <AlertCircle aria-hidden="true" :size="20" /><span>{{ error }}</span
           ><button :aria-label="t('close')" @click="error = ''">
-            <X :size="16" />
+            <X aria-hidden="true" :size="16" />
           </button>
         </div>
         <template v-if="['files', 'recent'].includes(view)"
           ><div class="toolbar">
-            <div class="filter-label">
-              <Folder :size="16" />{{
+            <div class="selection-status" v-if="selectedIds.size">
+              <span role="status"
+                >{{ selectedIds.size }} {{ t("selectedItems") }}</span
+              >
+              <button class="text-button" @click="selectedIds = new Set()">
+                {{ t("clearSelection") }}
+              </button>
+            </div>
+            <div v-else class="filter-label">
+              <Folder aria-hidden="true" :size="16" />{{
                 search ? t("search").replace("…", "") : t("home")
               }}
             </div>
             <div class="toolbar-right">
-              <select v-model="sort" :aria-label="t('type')">
+              <select v-model="sort" :aria-label="t('sortBy')">
                 <option value="name">{{ t("name") }}</option>
                 <option value="size">{{ t("size") }}</option>
                 <option value="type">{{ t("type") }}</option>
@@ -1108,29 +1387,54 @@ onUnmounted(() => {
                 class="icon-button"
                 :aria-label="t('sortDirection')"
                 @click="desc = !desc"
+                :data-tooltip="t('sortDirection')"
               >
-                <ArrowUpDown :size="17" />
+                <ArrowUpDown aria-hidden="true" :size="20" />
               </button>
               <div class="view-toggle">
                 <button
                   :class="{ selected: !grid }"
+                  :aria-pressed="!grid"
                   :aria-label="t('view') + ' list'"
                   @click="grid = false"
                 >
-                  <List :size="18" /></button
+                  <List aria-hidden="true" :size="20" /></button
                 ><button
                   :class="{ selected: grid }"
+                  :aria-pressed="grid"
                   :aria-label="t('view') + ' grid'"
                   @click="grid = true"
                 >
-                  <Grid2X2 :size="17" />
+                  <Grid2X2 aria-hidden="true" :size="20" />
                 </button>
               </div>
             </div>
           </div>
+          <button
+            v-if="view === 'files'"
+            class="upload-dropzone"
+            :class="{ dragging: drop }"
+            @click="fileInput?.click()"
+          >
+            <UploadIcon aria-hidden="true" :size="24" />
+            <span>{{ active ? t("uploading") : t("dropzoneHint") }}</span>
+            <span
+              v-if="active"
+              class="dropzone-progress meter"
+              role="progressbar"
+              :aria-label="t('transfers')"
+              :aria-valuenow="uploadProgress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              ><i :style="{ width: uploadProgress + '%' }"></i
+            ></span>
+            <small v-if="active">{{ uploadProgress }}%</small>
+          </button>
           <div v-if="loading" class="empty"><span class="spinner"></span></div>
           <div v-else-if="!nodes.length" class="empty">
-            <div class="empty-orbit"><img src="/Logo.png" alt="" /></div>
+            <div class="empty-orbit">
+              <img src="/Logo.png" :alt="t('mascotAlt')" />
+            </div>
             <h2>
               {{
                 t(
@@ -1148,11 +1452,19 @@ onUnmounted(() => {
               class="primary"
               @click="fileInput?.click()"
             >
-              <UploadIcon :size="17" />{{ t("upload") }}
+              <UploadIcon aria-hidden="true" :size="20" />{{ t("upload") }}
             </button>
           </div>
           <div v-else :class="grid ? 'file-grid' : 'file-list'">
             <div v-if="!grid" class="list-head">
+              <input
+                type="checkbox"
+                class="file-selection"
+                :checked="allSelected"
+                :indeterminate="selectedIds.size > 0 && !allSelected"
+                :aria-label="t('selectAll')"
+                @change="selectAll"
+              />
               <span>{{ t("name") }}</span><span>{{ t("size") }}</span
               ><span>{{ t("modified") }}</span
               ><span></span>
@@ -1161,10 +1473,19 @@ onUnmounted(() => {
               v-for="n in nodes"
               :key="n.id"
               class="file-item"
-              :class="kindClass(n)"
+              :class="[kindClass(n), { 'is-selected': selectedIds.has(n.id) }]"
               @dblclick="openNode(n)"
-              @contextmenu.prevent="menu = n.id"
+              @contextmenu.prevent.stop="openFileMenu(n.id, $event)"
             >
+              <input
+                type="checkbox"
+                class="file-selection"
+                :checked="selectedIds.has(n.id)"
+                :aria-label="t('selectItem') + ' ' + n.name"
+                @change="selectNode(n.id)"
+                @click.stop
+                @dblclick.stop
+              />
               <button class="file-main" @click="openNode(n)">
                 <div class="file-symbol">
                   <img
@@ -1174,7 +1495,11 @@ onUnmounted(() => {
                     @error="
                       ($event.target as HTMLImageElement).style.display = 'none'
                     "
-                  /><component :is="icon(n)" :size="grid ? 42 : 24" />
+                  /><component
+                    aria-hidden="true"
+                    :is="icon(n)"
+                    :size="grid ? 48 : 24"
+                  />
                 </div>
                 <span class="file-name" :title="n.name">{{
                   n.name
@@ -1182,33 +1507,64 @@ onUnmounted(() => {
               ><span class="file-size">{{
                 n.kind === "folder" ? "—" : bytes(n.size)
               }}</span
-              ><span class="file-date">{{ date(n.mtime) }}</span>
+              ><span class="file-date"
+                ><span class="sr-only">{{ t("modified") }}: </span
+                >{{ date(n.mtime) }}</span
+              >
               <div class="file-actions">
                 <button
                   class="icon-button"
-                  :aria-label="t('details') + ' ' + n.name"
-                  @click.stop="menu = menu === n.id ? '' : n.id"
+                  :aria-label="t('fileActions') + ' ' + n.name"
+                  aria-haspopup="menu"
+                  :aria-expanded="menu === n.id"
+                  :aria-controls="`file-menu-${n.id}`"
+                  @click.stop="openFileMenu(n.id, $event)"
+                  @keydown.down.prevent.stop="openFileMenu(n.id, $event)"
+                  :data-tooltip="t('fileActions') + ' ' + n.name"
                 >
-                  <MoreHorizontal :size="20" />
+                  <MoreHorizontal aria-hidden="true" :size="20" />
                 </button>
-                <div v-if="menu === n.id" class="context-menu" @click.stop>
-                  <button @click="openNode(n)">
+                <div
+                  v-if="menu === n.id"
+                  :id="`file-menu-${n.id}`"
+                  class="context-menu"
+                  role="menu"
+                  :aria-label="t('fileActions') + ' ' + n.name"
+                  @click.stop
+                  @keydown="menuKeydown"
+                >
+                  <button role="menuitem" @click="openNode(n)">
                     <component
+                      aria-hidden="true"
                       :is="n.kind === 'folder' ? Folder : ExternalLink"
                       :size="16"
                     />{{ t("preview") }}</button
-                  ><button v-if="n.kind === 'file'" @click="download(n)">
-                    <ArrowDownToLine :size="16" />{{ t("download") }}</button
-                  ><button @click="shareNode(n)">
-                    <Link :size="16" />{{ t("share") }}
+                  ><button
+                    role="menuitem"
+                    v-if="n.kind === 'file'"
+                    @click="download(n)"
+                  >
+                    <ArrowDownToLine aria-hidden="true" :size="16" />{{
+                      t("download")
+                    }}</button
+                  ><button role="menuitem" @click="shareNode(n)">
+                    <Link aria-hidden="true" :size="16" />{{ t("share") }}
                   </button>
                   <hr />
-                  <button @click="renameNode(n)">
-                    <FileText :size="16" />{{ t("rename") }}</button
-                  ><button @click="startMove(n)">
-                    <Folder :size="16" />{{ t("move") }}</button
-                  ><button class="danger-text" @click="deleteNode(n)">
-                    <Trash2 :size="16" />{{ t("delete") }}
+                  <button role="menuitem" @click="renameNode(n)">
+                    <FileText aria-hidden="true" :size="16" />{{
+                      t("rename")
+                    }}</button
+                  ><button role="menuitem" @click="startMove(n)">
+                    <Folder aria-hidden="true" :size="16" />{{
+                      t("move")
+                    }}</button
+                  ><button
+                    role="menuitem"
+                    class="danger-text"
+                    @click="deleteNode(n)"
+                  >
+                    <Trash2 aria-hidden="true" :size="16" />{{ t("delete") }}
                   </button>
                 </div>
               </div>
@@ -1217,11 +1573,17 @@ onUnmounted(() => {
         </template>
         <section v-else-if="view === 'shares'" class="panel">
           <div v-if="!shareRows.length" class="empty">
-            <Link :size="42" />
-            <p>{{ t("emptyList") }}</p>
+            <div class="empty-orbit">
+              <img src="/Logo.png" :alt="t('mascotAlt')" />
+            </div>
+            <h2>{{ t("emptyShares") }}</h2>
+            <p>{{ t("emptySharesHint") }}</p>
+            <RouterLink to="/files/root" class="button primary">{{
+              t("browseFiles")
+            }}</RouterLink>
           </div>
           <article v-for="s in shareRows" :key="s.id" class="data-row">
-            <div class="row-icon"><Link :size="22" /></div>
+            <div class="row-icon"><Link aria-hidden="true" :size="24" /></div>
             <div class="grow">
               <strong>{{ s.name || t("home") }}</strong><small>{{
                 s.revoked
@@ -1235,50 +1597,70 @@ onUnmounted(() => {
               v-if="s.url && !s.revoked"
               @click="copy(locationOrigin + s.url)"
             >
-              <Copy :size="14" />{{ t("copy") }}</button
+              <Copy aria-hidden="true" :size="16" />{{ t("copy") }}</button
             ><button v-if="!s.revoked" @click="editExpiry(s)">
               {{ t("editExpiry") }}</button
             ><button v-if="!s.revoked" class="danger" @click="revoke(s)">
               {{ t("revoke") }}</button
             ><button v-else class="danger" @click="deleteShareRecord(s)">
-              <Trash2 :size="16" />{{ t("deleteShareRecord") }}
+              <Trash2 aria-hidden="true" :size="16" />{{
+                t("deleteShareRecord")
+              }}
             </button>
           </article>
         </section>
         <section v-else-if="view === 'trash'" class="panel">
           <div v-if="!trashRows.length" class="empty">
-            <Trash2 :size="42" />
-            <p>{{ t("trashEmpty") }}</p>
+            <div class="empty-orbit">
+              <img src="/Logo.png" :alt="t('mascotAlt')" />
+            </div>
+            <h2>{{ t("trashEmpty") }}</h2>
+            <RouterLink to="/files/root" class="button primary">{{
+              t("browseFiles")
+            }}</RouterLink>
           </div>
           <article v-for="n in trashRows" :key="n.id" class="data-row">
-            <component :is="icon(n)" :size="26" :class="kindClass(n)" />
+            <component
+              aria-hidden="true"
+              :is="icon(n)"
+              :size="24"
+              :class="kindClass(n)"
+            />
             <div class="grow">
               <strong>{{ n.name }}</strong><small
                 >{{ date(n.deleted_at) }} · {{ bytes(n.size) }}</small
               >
             </div>
             <button @click="restoreNode(n)">
-              <RotateCcw :size="16" />{{ t("restore") }}</button
+              <RotateCcw aria-hidden="true" :size="16" />{{
+                t("restore")
+              }}</button
             ><button
               class="danger icon-button"
               :aria-label="t('purge')"
               @click="purgeNode(n)"
+              :data-tooltip="t('purge')"
             >
-              <Trash2 :size="17" />
+              <Trash2 aria-hidden="true" :size="20" />
             </button>
           </article>
         </section>
         <div v-else-if="view === 'settings'" class="settings-grid">
           <section class="panel">
-            <h2><Sun :size="20" />{{ t("appearance") }}</h2>
+            <h2><Sun aria-hidden="true" :size="20" />{{ t("appearance") }}</h2>
             <div class="setting-row">
-              <label>{{ t("language") }}</label><select v-model="locale">
+              <label for="language-preference">{{
+                t("language")
+              }}</label><select id="language-preference" v-model="locale">
                 <option value="zh">简体中文</option>
                 <option value="en">English</option>
               </select>
             </div>
             <div class="setting-row">
-              <label>{{ t("appearance") }}</label><select v-model="theme">
+              <label for="theme-preference">{{ t("appearance") }}</label><select
+                id="theme-preference"
+                v-model="theme"
+              >
                 <option value="light">{{ t("light") }}</option>
                 <option value="dark">{{ t("dark") }}</option>
                 <option value="system">{{ t("system") }}</option>
@@ -1286,7 +1668,9 @@ onUnmounted(() => {
             </div>
           </section>
           <section v-if="system" class="panel">
-            <h2><HardDrive :size="20" />{{ t("storage") }}</h2>
+            <h2>
+              <HardDrive aria-hidden="true" :size="20" />{{ t("storage") }}
+            </h2>
             <p class="disk-status">
               <span class="online-dot"></span>{{ t("online") }}
             </p>
@@ -1311,7 +1695,7 @@ onUnmounted(() => {
             >
           </section>
           <section class="panel full about-panel">
-            <h2><Cloud :size="20" />{{ t("about") }}</h2>
+            <h2><Cloud aria-hidden="true" :size="20" />{{ t("about") }}</h2>
             <div class="about-brand">
               <img src="/Logo.png" alt="" />
               <div>
@@ -1332,21 +1716,31 @@ onUnmounted(() => {
           </section>
           <section class="panel full">
             <div class="panel-heading">
-              <h2><HardDrive :size="20" />{{ t("backups") }}</h2>
+              <h2>
+                <HardDrive aria-hidden="true" :size="20" />{{ t("backups") }}
+              </h2>
               <button @click="createBackup">
-                <RefreshCw :size="16" />{{ t("createBackup") }}
+                <RefreshCw aria-hidden="true" :size="16" />{{
+                  t("createBackup")
+                }}
               </button>
             </div>
             <p class="muted">{{ t("backupHint") }}</p>
             <div v-for="b in backupRows" :key="b" class="data-row">
-              <File :size="18" /><span class="grow mono">{{ b }}</span
+              <File aria-hidden="true" :size="20" /><span class="grow mono">{{
+                b
+              }}</span
               ><a class="button" :href="'/api/settings/backups/' + b"
-                ><ArrowDownToLine :size="16" />{{ t("download") }}</a
+                ><ArrowDownToLine aria-hidden="true" :size="16" />{{
+                  t("download")
+                }}</a
               >
             </div>
           </section>
           <section class="panel full">
-            <h2><ShieldCheck :size="20" />{{ t("loginLogs") }}</h2>
+            <h2>
+              <ShieldCheck aria-hidden="true" :size="20" />{{ t("loginLogs") }}
+            </h2>
             <p class="muted">{{ t("loginLogsHint") }}</p>
             <div class="audit-table">
               <div class="audit-row">
@@ -1367,18 +1761,26 @@ onUnmounted(() => {
     <section
       v-if="transfer.tasks.length"
       class="transfer-panel"
+      :inert="compactLayout && sidebar"
       :class="{ expanded: transfer.expanded }"
     >
       <button
         class="transfer-title"
+        :aria-expanded="transfer.expanded"
+        aria-controls="transfer-tasks"
         @click="transfer.expanded = !transfer.expanded"
       >
-        <span class="transfer-icon"><UploadIcon :size="19" /></span
+        <span class="transfer-icon"
+          ><UploadIcon aria-hidden="true" :size="20" /></span
         ><strong>{{ t("transfers") }}</strong
         ><span class="count">{{ active }}</span
-        ><ChevronDown :size="18" :class="{ rotated: transfer.expanded }" />
+        ><ChevronDown
+          aria-hidden="true"
+          :size="20"
+          :class="{ rotated: transfer.expanded }"
+        />
       </button>
-      <div v-if="transfer.expanded" class="transfer-body">
+      <div v-if="transfer.expanded" id="transfer-tasks" class="transfer-body">
         <p class="transfer-hint">{{ t("transferHint") }}</p>
         <div
           v-for="task in transfer.tasks"
@@ -1386,14 +1788,28 @@ onUnmounted(() => {
           class="transfer-task"
         >
           <div class="transfer-task-top">
-            <File :size="21" /><strong :title="task.name">{{
+            <File aria-hidden="true" :size="20" /><strong :title="task.name">{{
               task.name
             }}</strong
-            ><span class="task-state" :class="task.status">{{
+            ><span class="task-state" :class="task.status" role="status">{{
               t(task.status)
             }}</span>
           </div>
-          <div class="meter">
+          <div
+            class="meter"
+            :class="task.status"
+            role="progressbar"
+            :aria-label="task.name"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="
+              task.size
+                ? Math.min(100, Math.floor((task.done / task.size) * 100))
+                : task.status === 'complete'
+                  ? 100
+                  : 0
+            "
+          >
             <i
               :style="{
                 width:
@@ -1427,29 +1843,34 @@ onUnmounted(() => {
               v-if="['queued', 'hashing', 'uploading'].includes(task.status)"
               @click="pause(task)"
             >
-              <Pause :size="14" />{{ t("pause") }}</button
+              <Pause aria-hidden="true" :size="16" />{{ t("pause") }}</button
             ><button
               v-if="task.status === 'paused'"
               :disabled="!!task.controller"
               @click="resume(task)"
             >
-              <Play :size="14" />{{ t("resume") }}</button
+              <Play aria-hidden="true" :size="16" />{{ t("resume") }}</button
             ><button v-if="task.status === 'failed'" @click="taskRetry(task)">
-              <RotateCcw :size="14" />{{ t("retry") }}</button
+              <RotateCcw aria-hidden="true" :size="16" />{{
+                t("retry")
+              }}</button
             ><button
               v-if="task.status === 'recoverable'"
               @click="chooseOriginal(task)"
             >
-              <UploadIcon :size="14" />{{ t("reselect") }}</button
+              <UploadIcon aria-hidden="true" :size="16" />{{
+                t("reselect")
+              }}</button
             ><button
               v-if="!['complete', 'cancelled'].includes(task.status)"
               @click="cancelTransfer(task)"
             >
-              <X :size="14" />{{ t("cancel") }}</button
+              <X aria-hidden="true" :size="16" />{{ t("cancel") }}</button
             ><Check
+              aria-hidden="true"
               v-if="task.status === 'complete'"
               class="success-text"
-              :size="18"
+              :size="20"
             />
           </div>
         </div>
@@ -1473,23 +1894,61 @@ onUnmounted(() => {
     hidden
     @change="uploadSelected"
   /><input ref="recoverInput" type="file" hidden @change="chosenOriginal" />
-  <div v-if="toast" role="status" class="toast">
-    <Check :size="17" />{{ toast }}
-  </div>
-  <dialog ref="modal" class="dialog" @cancel.prevent="answer(null)">
+  <Teleport :to="toastHost">
+    <div
+      v-if="toast"
+      :role="
+        toastTone === 'danger' || toastTone === 'warning' ? 'alert' : 'status'
+      "
+      class="toast"
+      :class="toastTone"
+    >
+      <component
+        aria-hidden="true"
+        :is="
+          {
+            success: Check,
+            info: Info,
+            warning: TriangleAlert,
+            danger: AlertCircle,
+          }[toastTone]
+        "
+        :size="20"
+      />
+      <span>{{ toast }}</span><button
+        class="icon-button"
+        :aria-label="t('close')"
+        @click="dismissToast"
+        :data-tooltip="t('close')"
+      >
+        <X aria-hidden="true" :size="16" />
+      </button>
+    </div>
+  </Teleport>
+  <dialog
+    ref="modal"
+    class="dialog"
+    aria-labelledby="modal-title"
+    :aria-describedby="modalHint ? 'modal-description' : undefined"
+    @close="restoreDialogFocus"
+    @cancel.prevent="answer(null)"
+  >
     <form @submit.prevent="answer(modalInput ? modalValue : 'yes')">
       <div class="dialog-heading">
-        <h2>{{ modalTitle }}</h2>
+        <h2 id="modal-title">{{ modalTitle }}</h2>
         <button
           type="button"
           class="icon-button"
           :aria-label="t('close')"
           @click="answer(null)"
+          :data-tooltip="t('close')"
         >
-          <X :size="20" />
+          <X aria-hidden="true" :size="20" />
         </button>
       </div>
-      <p v-if="modalHint" class="muted">{{ modalHint }}</p>
+      <p v-if="modalHint" id="modal-description" class="muted">
+        {{ modalHint }}
+      </p>
       <input
         v-if="modalInput"
         v-model="modalValue"
@@ -1510,45 +1969,61 @@ onUnmounted(() => {
       </div>
     </form>
   </dialog>
-  <dialog ref="shareDialog" class="dialog">
+  <dialog
+    ref="shareDialog"
+    class="dialog"
+    aria-labelledby="share-title"
+    aria-describedby="share-description"
+    @close="restoreDialogFocus"
+  >
     <div class="dialog-heading">
-      <h2>{{ t("share") }}</h2>
+      <h2 id="share-title">{{ t("share") }}</h2>
       <button
         class="icon-button"
         :aria-label="t('close')"
         @click="shareDialog?.close()"
+        :data-tooltip="t('close')"
       >
-        <X :size="20" />
+        <X aria-hidden="true" :size="20" />
       </button>
     </div>
-    <p class="muted">{{ t("shareCreated") }}</p>
+    <p id="share-description" class="muted">{{ t("shareCreated") }}</p>
     <input :value="shareLink" readonly :aria-label="t('share')" />
     <div class="dialog-actions">
       <button class="primary" @click="copy(shareLink)">
-        <Copy :size="16" />{{ t("copy") }}
+        <Copy aria-hidden="true" :size="16" />{{ t("copy") }}
       </button>
     </div>
   </dialog>
-  <dialog ref="moveDialog" class="dialog">
+  <dialog
+    ref="moveDialog"
+    class="dialog"
+    aria-labelledby="move-title"
+    aria-describedby="move-description"
+    @close="restoreDialogFocus"
+  >
     <div class="dialog-heading">
-      <h2>{{ t("chooseDestination") }}</h2>
+      <h2 id="move-title">{{ t("chooseDestination") }}</h2>
       <button
         class="icon-button"
         :aria-label="t('close')"
         @click="moveDialog?.close()"
+        :data-tooltip="t('close')"
       >
-        <X :size="20" />
+        <X aria-hidden="true" :size="20" />
       </button>
     </div>
+    <p id="move-description" class="muted">{{ t("moveHint") }}</p>
     <div class="breadcrumbs">
       <button v-for="b in moveCrumbs" :key="b.id" @click="loadMove(b.id)">
-        {{ b.id === "root" ? t("home") : b.name }}<ChevronRight :size="13" />
+        {{ b.id === "root" ? t("home") : b.name
+        }}<ChevronRight aria-hidden="true" :size="16" />
       </button>
     </div>
     <div class="move-folders">
       <button v-for="n in moveNodes" :key="n.id" @click="loadMove(n.id)">
-        <Folder :size="20" class="folder" />{{ n.name
-        }}<ChevronRight :size="16" />
+        <Folder aria-hidden="true" :size="20" class="folder" />{{ n.name
+        }}<ChevronRight aria-hidden="true" :size="16" />
       </button>
     </div>
     <div class="dialog-actions">
@@ -1563,20 +2038,24 @@ onUnmounted(() => {
   <dialog
     ref="previewDialog"
     class="dialog preview-dialog"
+    aria-labelledby="preview-title"
+    aria-describedby="preview-description"
+    @close="restoreDialogFocus"
     @cancel="preview = undefined"
   >
     <template v-if="preview"
       ><div class="dialog-heading">
         <div>
           <span class="eyebrow">{{ t("details") }}</span>
-          <h2>{{ preview.name }}</h2>
+          <h2 id="preview-title">{{ preview.name }}</h2>
         </div>
         <button
           class="icon-button"
           :aria-label="t('close')"
           @click="closePreview"
+          :data-tooltip="t('close')"
         >
-          <X :size="22" />
+          <X aria-hidden="true" :size="24" />
         </button>
       </div>
       <div class="preview-content">
@@ -1586,7 +2065,7 @@ onUnmounted(() => {
             :src="`/api/nodes/${preview.id}/thumbnail`"
             alt=""
             @error="($event.target as HTMLImageElement).style.display = 'none'"
-          /><Film :size="56" />
+          /><Film aria-hidden="true" :size="56" />
           <p>{{ t("videoHint") }}</p>
         </div>
         <audio
@@ -1603,9 +2082,10 @@ onUnmounted(() => {
         <p v-else class="muted">{{ previewError || t("working") }}</p>
       </div>
       <div class="preview-footer">
-        <span>{{ bytes(preview.size) }} · {{ date(preview.mtime) }}</span
+        <span id="preview-description"
+          >{{ bytes(preview.size) }} · {{ date(preview.mtime) }}</span
         ><button class="primary" @click="download(preview)">
-          <ArrowDownToLine :size="17" />{{ t("download") }}
+          <ArrowDownToLine aria-hidden="true" :size="20" />{{ t("download") }}
         </button>
       </div></template
     >
