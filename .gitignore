@@ -1,0 +1,17 @@
+/Design.md
+/Magic_Cloud_v1.0.md
+/Spec.md
+.env
+.env.*
+!.env.example
+**/node_modules/
+**/dist/
+**/target/
+/test-results/
+*.db
+*.db-wal
+*.db-shm
+*.log
+**/*.tsbuildinfo
+**/__pycache__/
+/.scratch-smoke/

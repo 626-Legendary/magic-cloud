@@ -1,0 +1,11 @@
+[Unit]
+Description=Monitor Magic Cloud storage identity
+
+[Timer]
+OnBootSec=15
+OnUnitActiveSec=5
+AccuracySec=1
+Unit=magic-cloud-storage.service
+
+[Install]
+WantedBy=timers.target

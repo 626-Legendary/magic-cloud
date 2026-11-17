@@ -1,0 +1,9 @@
+[Unit]
+Description=Verify Magic Cloud USB and reconcile backend mount
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/magic-cloud/deploy/scripts/storage.sh reconcile
+TimeoutStartSec=90

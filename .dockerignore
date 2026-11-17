@@ -1,0 +1,11 @@
+.git
+.agents
+.aws
+.codex
+.env
+Design.md
+Spec.md
+Magic_Cloud_v1.0.md
+**/node_modules
+**/target
+**/dist

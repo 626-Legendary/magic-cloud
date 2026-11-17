@@ -1,0 +1,69 @@
+# REST API v1
+
+所有响应禁止公开缓存。请求与响应通常为 JSON；分片是二进制请求体，下载/缩略图是流。时间为 UTC Unix 秒，大小为字节。所有者 API 使用 `mc_session` Cookie；所有写请求必须携带与 `APP_ORIGIN` 相同的 `Origin`，登录外还需要 `X-CSRF-Token`（由登录或 session 返回）。不接受前端磁盘路径。
+
+## 接口表
+
+| 方法 | 路径（以 `/api` 开头） | 鉴权/输入 | 成功响应 |
+|---|---|---|---|
+| POST | `/auth/login` | 无会话；`{password}` | `{csrf}`，设置安全 Cookie |
+| GET | `/auth/session` | 会话 | `{csrf,expires_in}` |
+| POST | `/auth/logout` | 会话+CSRF | `{ok:true}`，立即撤销 |
+| GET | `/nodes` | 会话；`parent=root,q,sort,desc,recent` | `{nodes,breadcrumbs}` |
+| POST | `/nodes` | 会话+CSRF；`{parent,name}` | 新建目录节点 |
+| GET | `/nodes/{id}` | 会话 | 节点详情 |
+| PATCH | `/nodes/{id}` | 会话+CSRF；`{parent,name,strategy}` | 保留 ID 的新节点信息 |
+| DELETE | `/nodes/{id}` | 会话+CSRF | 进入回收站，`{ok:true}` |
+| GET | `/nodes/{id}/download` | 会话；可选 `inline=true` 与 Range 头 | 200/206 文件流 |
+| GET | `/nodes/{id}/text` | 会话 | `{text}`，UTF-8，≤2 MiB |
+| GET | `/nodes/{id}/thumbnail` | 会话 | JPEG；失败时 UI 显示类型图标 |
+| GET | `/uploads` | 会话 | 未过期任务数组 |
+| POST | `/uploads` | 会话+CSRF；见下文 | `{upload,chunk_size,chunks}` |
+| GET | `/uploads/{id}` | 会话 | `{upload,chunk_size,chunks}` |
+| PUT | `/uploads/{id}/chunks/{index}` | 会话+CSRF；二进制、`X-Chunk-SHA256` | `{index,size}`，幂等 |
+| PATCH | `/uploads/{id}/strategy` | 会话+CSRF；`{strategy}` | `{ok:true}` |
+| POST | `/uploads/{id}/complete` | 会话+CSRF | 最终节点，重复请求返回同一节点 |
+| DELETE | `/uploads/{id}` | 会话+CSRF | 取消并释放临时文件 |
+| GET | `/trash` | 会话 | 回收站根对象数组 |
+| POST | `/trash/{id}/restore` | 会话+CSRF；`{parent?,strategy}` | 恢复节点 |
+| DELETE | `/trash/{id}` | 会话+CSRF | 永久清理该回收站项 |
+| DELETE | `/trash` | 会话+CSRF | 清空回收站 |
+| GET | `/shares` | 会话 | 分享数组及所有者可复制的相对 URL |
+| POST | `/shares` | 会话+CSRF；`{root,expires:null或UTC秒}` | `{id,token,url,expires}` |
+| PATCH | `/shares/{id}` | 会话+CSRF；`{expires}` | 更新有效期 |
+| DELETE | `/shares/{id}` | 会话+CSRF | 撤销，`{ok:true}` |
+| GET | `/public/{token}` | 分享 Token；可选 `node` | `{root,node,nodes}`，无真实路径 |
+| GET | `/public/{token}/nodes/{id}/download` | 分享 Token+当前子树归属 | 逐文件下载流 |
+| GET | `/settings` | 会话 | storage/system/limits |
+| GET | `/settings/audit` | 会话 | 最近最多 1,000 条登录记录 |
+| GET | `/settings/backups` | 会话 | 备份文件名数组 |
+| POST | `/settings/backups` | 会话+CSRF | `{name}`，新的一致性备份 |
+| GET | `/settings/backups/{name}` | 会话 | 数据库备份流 |
+
+`/health/live` 和 `/health/ready` 不带 `/api`，只返回通用状态，用于容器内部健康检查。健康端点不包含配置、文件或设备详情。
+
+## 上传示例
+
+```json
+{
+  "parent": "root",
+  "name": "photos.zip",
+  "size": 42000000,
+  "digest": "完整文件的小写64位SHA256十六进制摘要",
+  "strategy": "ask"
+}
+```
+
+每片大小固定 16777216 字节，最后一片为余数；空文件无分片，直接完成。序号从零开始，任务有效期为创建后 24 小时。前端暂停通过停止新请求及中断正在传输的请求实现；继续先查询确认片。取消遇到在途请求返回 409，客户端等待请求停止后重试。
+
+## 错误与冲突
+
+```json
+{"error":{"code":"name_conflict","details":{"choices":["overwrite","rename","cancel"]}}}
+```
+
+默认 `strategy=ask`。冲突时 HTTP 409；用户选择后以 `overwrite` 或 `rename` 重试，取消则不执行请求。自动重命名采用 `name (1).ext`。覆盖行为适用于整个冲突对象；旧对象及子树先进入回收站。
+
+常见状态：400 参数/摘要错误；401 会话无效；403 Origin/CSRF 不符；404 对象或分享不可用；409 同名/在途冲突；416 Range 无效；429 并发/限流；503 存储或数据库错误；507 空间不足。未知输入和解析错误统一返回 `invalid_request`。`X-Request-ID` 可用于关联服务端错误日志，日志不记录密码、Cookie、分享 URL 或 Token。
+
+浏览列表的 `q` 是全盘递归文件名搜索；`sort=name|size|type|mtime`，`desc=true|false`；`recent=true` 返回最近修改的最多 100 个文件。预览的 HTML/代码始终作为转义文本展示，视频下载不接受 inline 播放模式。
