@@ -41,3 +41,13 @@
 - Rust 测试 19 项通过，包含 DNS 代理识别、非代理头部拒绝和解析失败回退；Clippy 严格检查通过。
 - ARM64 `docker build -t magic-cloud:local .` 成功。
 - 在临时 Docker 网络/volume 中验证：默认 DNS 识别代理；代理重建并取得不同 IP 后继续识别；其他容器占用旧 IP 后，伪造 CF-Connecting-IP 不被采信。临时容器、网络和 volume 已清理，未重建生产服务。
+
+## 局域网 HTTP 入口
+
+增加显式 `LAN_BIND_ADDRESS`/`LAN_ORIGIN` 配置；当前 Pi 绑定 `192.168.0.101:5080`，公网 HTTPS 入口保留。LAN 使用独立 Cookie 和会话哈希命名空间；公网 Secure Cookie 不变。写操作按入口精确校验 Origin，并继续要求 CSRF。
+
+- Rust 格式检查、22 项测试及严格 Clippy 通过；覆盖 LAN 登录/退出/过期会话、来源与 Host 匹配、CSRF、公网/局域网会话不可互用、LAN 关闭和非法 Origin。
+- Vue/TypeScript 生产构建及 5 项前端测试通过，包含普通 HTTP 环境下任务 ID 和 SHA-256 校验回退。
+- 通过隔离 Chromium 在真实非安全上下文 `http://192.168.0.101:15080` 测试（未启用安全上下文绕过）：登录、刷新保持登录、真实上传/下载内容、转义预览、复制及公开分享、17 MiB 分片上传跨路由继续、退出清除 Cookie 全部通过。可重复脚本为 `tests/lan-browser.mjs`，仅对可丢弃部署运行。
+- ARM64 镜像重新构建成功；确认无待完成上传后重建生产两容器，将旧固定网络迁移到 Compose 默认网络。
+- 部署后 LAN 健康检查返回 ok，LAN 页面和公网 HTTPS 页面均为 HTTP 200。端口仅绑定宿主机 `192.168.0.101:5080`。临时测试容器、volume 和浏览器已清理。

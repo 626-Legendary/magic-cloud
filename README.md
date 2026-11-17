@@ -34,7 +34,7 @@
    Rust 默认两路编译；内存不足可执行 `docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud` 后 `docker compose up -d`。
 6. 在 Cloudflare Tunnel 的连接器安装页面选择 Docker，复制安装命令 `--token` 后面的完整值，填入 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN`。仅填写 Tunnel ID（UUID）不能用于此启动方式。Compose 按 `tunnel --no-autoupdate run --token ...` 启动连接器；不要公开粘贴解析后的 Compose 配置，因为其中包含 Token。
 
-   在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:5080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。无需对宿主机发布应用端口。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
+   在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:5080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。公网流量由 Tunnel 转发；局域网入口按下文配置。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
 7. 安装 USB 恢复监控：将 `deploy/systemd/` 中两个文件复制到 `/etc/systemd/system/`，把 service 的 `ExecStart` 改为仓库实际绝对路径，然后：
 
    ```bash
@@ -43,6 +43,22 @@
    ```
 
 只有手动启动 Compose 无法保证拔盘后的恢复。监控停止后端、校验 UUID/存储标记，重挂 USB 并**重新创建**容器。`cloudflared` 可继续运行。数据库异常或同一挂载反复启动失败时会保持停止，详见运维文档。
+
+## 局域网访问
+
+公网继续使用 `APP_ORIGIN` 的 HTTPS 域名。要同时通过树莓派 IP 访问，在 `.env` 设置：
+
+```dotenv
+PORT=5080
+LAN_BIND_ADDRESS=192.168.0.101
+LAN_ORIGIN=http://192.168.0.101:5080
+```
+
+将示例 IP 换成树莓派实际局域网 IP，然后执行 `docker compose up -d --build --force-recreate magic-cloud`，访问 `http://192.168.0.101:5080`。Compose 只将端口绑定到指定地址；局域网 IP 改变后需更新这两个配置并重建容器。样例配置默认仅绑定回环地址，LAN_ORIGIN 留空时关闭 HTTP 登录入口。
+
+两个入口使用同一密码和 USB 数据，分别登录。公网会话继续使用 Secure Cookie；局域网使用独立的 host-only、HttpOnly、SameSite=Strict 会话，仍校验精确 Origin 和 CSRF。HTTP 不加密，请仅在可信局域网使用，不要将此端口做公网转发。
+
+局域网上传、恢复与分片校验支持普通 HTTP，无需修改浏览器的安全设置。分享链接使用当前入口地址；从局域网创建的 IP 链接只能由能访问该 IP 的设备打开。断网时可继续使用局域网入口，服务仍要求正确挂载 USB。
 
 ## 使用与默认值
 
@@ -69,6 +85,6 @@
 
 代码提供 [API 契约](docs/api.md)、[架构和数据模型](docs/architecture.md)、[安全边界](docs/security.md)、[升级与恢复步骤](docs/operations.md) 和 [验收清单](docs/acceptance.md)。实际执行的验证与限制记录在 [验证结果](docs/validation.md)。
 
-Cloudflare 单次请求限制取决于账户计划，16 MiB 分片用于减少单次请求体大小；部署前应检查[官方上传限制](https://developers.cloudflare.com/network/maximum-upload-size/)及当前适用条款。流式和 Range 下载不保证 Cloudflare 公网 10 GB 下载或视频分发可用，也不提供断网局域网备用入口。
+Cloudflare 单次请求限制取决于账户计划，16 MiB 分片用于减少单次请求体大小；部署前应检查[官方上传限制](https://developers.cloudflare.com/network/maximum-upload-size/)及当前适用条款。流式和 Range 下载不保证 Cloudflare 公网 10 GB 下载或视频分发可用，局域网 IP 入口不依赖 Cloudflare。
 
 三份输入需求文档只保留于本地，已排除 Git 提交。运行数据、真实秘密不应放在源码目录内。

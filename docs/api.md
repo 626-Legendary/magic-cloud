@@ -1,6 +1,6 @@
 # REST API v1
 
-所有响应禁止公开缓存。请求与响应通常为 JSON；分片是二进制请求体，下载/缩略图是流。时间为 UTC Unix 秒，大小为字节。所有者 API 使用 `mc_session` Cookie；所有写请求必须携带与 `APP_ORIGIN` 相同的 `Origin`，登录外还需要 `X-CSRF-Token`（由登录或 session 返回）。不接受前端磁盘路径。
+所有响应禁止公开缓存。请求与响应通常为 JSON；分片是二进制请求体，下载/缩略图是流。时间为 UTC Unix 秒，大小为字节。所有者 API 在公网使用 `mc_session` Cookie、在显式配置的局域网入口使用 `mc_lan_session` Cookie；所有写请求必须携带与对应入口 `APP_ORIGIN` 或 `LAN_ORIGIN` 相同的 `Origin`，登录外还需要 `X-CSRF-Token`（由登录或 session 返回）。不接受前端磁盘路径。
 
 ## 接口表
 

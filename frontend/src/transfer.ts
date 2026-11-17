@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { taskId, chunkDigest } from "./browser";
 import { api, ApiError, putChunk, type Upload, type UploadStatus } from "./api";
 export const CHUNK = 16 * 1024 * 1024,
   MAX_FILE = 10_000_000_000;
@@ -103,7 +104,7 @@ async function retry<T>(fn: () => Promise<T>, signal: AbortSignal): Promise<T> {
 export function enqueue(file: File, parent: string) {
   if (file.size > MAX_FILE) throw new Error("maxSize");
   transfer.tasks.push({
-    key: crypto.randomUUID(),
+    key: taskId(),
     name: file.name,
     parent,
     size: file.size,
@@ -176,12 +177,7 @@ async function run(task: Task) {
           index * CHUNK,
           Math.min(task.size, (index + 1) * CHUNK),
         );
-        const checksum = Array.from(
-          new Uint8Array(
-            await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()),
-          ),
-          (x) => x.toString(16).padStart(2, "0"),
-        ).join("");
+        const checksum = await chunkDigest(blob);
         await retry(
           () => putChunk(task.id!, index, blob, checksum, controller.signal),
           controller.signal,
@@ -253,7 +249,7 @@ export async function recoverTasks() {
     if (transfer.tasks.some((t) => t.id === u.id)) continue;
     const status = await api<UploadStatus>(`/uploads/${u.id}`);
     transfer.tasks.push({
-      key: crypto.randomUUID(),
+      key: taskId(),
       id: u.id,
       name: u.name,
       parent: u.parent,

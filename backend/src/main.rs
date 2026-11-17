@@ -35,6 +35,7 @@ struct App {
     core: Arc<Mutex<Core>>,
     password: Arc<String>,
     origin: Arc<String>,
+    lan_origin: Option<Arc<String>>,
     proxy_host: Arc<String>,
 }
 impl App {
@@ -58,12 +59,66 @@ impl App {
         .map_err(|_| Error::bad("worker_failed"))?
     }
 }
-fn cookie(h: &HeaderMap) -> Option<String> {
+fn lan_request(a: &App, h: &HeaderMap) -> bool {
+    a.lan_origin.as_ref().is_some_and(|origin| {
+        let uri = origin
+            .parse::<axum::http::Uri>()
+            .expect("validated LAN origin");
+        h.get("host").and_then(|h| h.to_str().ok()) == uri.authority().map(|v| v.as_str())
+    })
+}
+fn session_hash(sid: &str, lan: bool) -> String {
+    if lan {
+        hash(format!("lan\0{sid}"))
+    } else {
+        hash(sid)
+    }
+}
+fn session_cookie(sid: &str, lan: bool, clear: bool) -> HeaderValue {
+    let name = if lan { "mc_lan_session" } else { "mc_session" };
+    HeaderValue::from_str(&format!(
+        "{name}={sid}; Path=/; HttpOnly; {}SameSite=Strict; Max-Age={}",
+        if lan { "" } else { "Secure; " },
+        if clear { 0 } else { 604800 }
+    ))
+    .unwrap()
+}
+fn cookie(h: &HeaderMap, lan: bool) -> Option<String> {
+    let prefix = if lan {
+        "mc_lan_session="
+    } else {
+        "mc_session="
+    };
     h.get("cookie")?
         .to_str()
         .ok()?
         .split(';')
-        .find_map(|s| s.trim().strip_prefix("mc_session=").map(str::to_owned))
+        .find_map(|s| s.trim().strip_prefix(prefix).map(str::to_owned))
+}
+fn validate_lan_origin(origin: &str) -> Result<()> {
+    let invalid = || Error::bad("invalid_lan_origin");
+    let uri = origin.parse::<axum::http::Uri>().map_err(|_| invalid())?;
+    if uri.scheme_str() != Some("http")
+        || uri.port_u16().is_none()
+        || origin.ends_with('/')
+        || uri.authority().is_none_or(|a| a.as_str().contains('@'))
+        || uri.path_and_query().is_some_and(|p| p.as_str() != "/")
+    {
+        return Err(invalid());
+    }
+    let host = uri
+        .host()
+        .ok_or_else(invalid)?
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let local = match host.parse::<std::net::IpAddr>().map_err(|_| invalid())? {
+        std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local(),
+        std::net::IpAddr::V6(ip) => ip.is_unique_local() || ip.is_loopback(),
+    };
+    if !local {
+        return Err(invalid());
+    }
+    Ok(())
 }
 async fn security(State(a): State<App>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
@@ -73,7 +128,14 @@ async fn security(State(a): State<App>, req: Request, next: Next) -> Response {
         .get("origin")
         .and_then(|h| h.to_str().ok())
         .map(str::to_owned);
-    let session_id = cookie(req.headers());
+    let lan = lan_request(&a, req.headers());
+    let expected_origin = if lan {
+        a.lan_origin.as_ref().unwrap().as_str()
+    } else {
+        a.origin.as_str()
+    }
+    .to_owned();
+    let session_id = cookie(req.headers(), lan);
     let csrf_value = req
         .headers()
         .get("x-csrf-token")
@@ -81,7 +143,7 @@ async fn security(State(a): State<App>, req: Request, next: Next) -> Response {
         .unwrap_or("")
         .to_owned();
     let secured = async {
-        if write && origin.as_deref() != Some(a.origin.as_str()) {
+        if write && origin.as_deref() != Some(expected_origin.as_str()) {
             return Err(Error(StatusCode::FORBIDDEN, "origin_rejected", Value::Null));
         }
         if path.starts_with("/api/")
@@ -98,7 +160,7 @@ async fn security(State(a): State<App>, req: Request, next: Next) -> Response {
                 let v: Option<String> =
                     c.db.query_row(
                         "SELECT csrf FROM sessions WHERE hash=?1 AND expires>?2 AND generation=?3",
-                        params![hash(sid), now(), c.generation],
+                        params![session_hash(&sid, lan), now(), c.generation],
                         |r| r.get(0),
                     )
                     .optional()?;
@@ -187,6 +249,7 @@ async fn login(
     headers: HeaderMap,
     Json(v): Json<Login>,
 ) -> Result<Response> {
+    let lan = lan_request(&a, &headers);
     let ip = client_ip(peer.ip(), &headers, &a.proxy_host).await;
     let rate_ip = ip.clone();
     a.run(move |c| {
@@ -228,7 +291,12 @@ async fn login(
         if ok {
             c.db.execute(
                 "INSERT INTO sessions VALUES(?1,?2,?3,?4)",
-                params![hash(session), now() + 7 * 86400, c.generation, csrf],
+                params![
+                    session_hash(&session, lan),
+                    now() + 7 * 86400,
+                    c.generation,
+                    csrf
+                ],
             )?;
         }
         Ok(())
@@ -242,21 +310,17 @@ async fn login(
         ));
     }
     let mut r = Json(json!({"csrf":csrf_out})).into_response();
-    r.headers_mut().insert(
-        "set-cookie",
-        HeaderValue::from_str(&format!(
-            "mc_session={sid}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800"
-        ))
-        .unwrap(),
-    );
+    r.headers_mut()
+        .insert("set-cookie", session_cookie(&sid, lan, false));
     Ok(r)
 }
 async fn session(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
-    let sid = cookie(&h).unwrap_or_default();
+    let lan = lan_request(&a, &h);
+    let sid = cookie(&h, lan).unwrap_or_default();
     a.run(move |c| {
         let csrf: String = c.db.query_row(
             "SELECT csrf FROM sessions WHERE hash=?1",
-            [hash(sid)],
+            [session_hash(&sid, lan)],
             |r| r.get(0),
         )?;
         Ok(Json(json!({"csrf":csrf,"expires_in":604800})))
@@ -264,19 +328,19 @@ async fn session(State(a): State<App>, h: HeaderMap) -> Result<Json<Value>> {
     .await
 }
 async fn logout(State(a): State<App>, h: HeaderMap) -> Result<Response> {
-    let sid = cookie(&h).unwrap_or_default();
+    let lan = lan_request(&a, &h);
+    let sid = cookie(&h, lan).unwrap_or_default();
     a.run(move |c| {
-        c.db.execute("DELETE FROM sessions WHERE hash=?1", [hash(sid)])?;
+        c.db.execute(
+            "DELETE FROM sessions WHERE hash=?1",
+            [session_hash(&sid, lan)],
+        )?;
         Ok(())
     })
     .await?;
     let mut r = Json(json!({"ok":true})).into_response();
-    r.headers_mut().insert(
-        "set-cookie",
-        HeaderValue::from_static(
-            "mc_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
-        ),
-    );
+    r.headers_mut()
+        .insert("set-cookie", session_cookie("", lan, true));
     Ok(r)
 }
 #[derive(Deserialize, Default)]
@@ -971,6 +1035,10 @@ async fn start() -> Result<()> {
     if !origin.starts_with("https://") || origin.ends_with('/') {
         return Err(Error::bad("https_origin_required"));
     }
+    let lan_origin = std::env::var("LAN_ORIGIN").ok().filter(|v| !v.is_empty());
+    if let Some(origin) = &lan_origin {
+        validate_lan_origin(origin)?;
+    }
     let storage = storage::Storage::open(&env("STORAGE_ROOT")?, &env("STORAGE_ID")?, true)?;
     let mut c = Core::open(storage, &secret, &password)?;
     c.reserve_bytes = std::env::var("SAFETY_MARGIN_BYTES")
@@ -990,6 +1058,7 @@ async fn start() -> Result<()> {
         core: Arc::new(Mutex::new(c)),
         password: Arc::new(ph),
         origin: Arc::new(origin),
+        lan_origin: lan_origin.map(Arc::new),
         proxy_host: Arc::new(
             std::env::var("TRUSTED_PROXY_HOST").unwrap_or_else(|_| "cloudflared".into()),
         ),

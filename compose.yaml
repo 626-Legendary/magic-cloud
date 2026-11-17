@@ -13,10 +13,13 @@ services:
     user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
     restart: "no"
+    ports:
+      - "${LAN_BIND_ADDRESS:-127.0.0.1}:${PORT:-5080}:${PORT:-5080}"
     environment:
       APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
       APP_ORIGIN: ${APP_ORIGIN:?Set HTTPS origin}
+      LAN_ORIGIN: ${LAN_ORIGIN:-}
       STORAGE_ID: ${STORAGE_ID:?Initialize storage first}
       STORAGE_ROOT: /data
       TRUSTED_PROXY_HOST: cloudflared

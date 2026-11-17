@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { copyText } from "./browser";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -442,7 +443,7 @@ async function revoke(s: any) {
 }
 async function copy(value: string) {
   try {
-    await navigator.clipboard.writeText(value);
+    await copyText(value);
     notify(t("copied"));
   } catch (e) {
     fail(e);

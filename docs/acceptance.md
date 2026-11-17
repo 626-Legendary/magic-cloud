@@ -36,3 +36,5 @@
 - 单独通过实际 Cloudflare 账户测试 10 GB 下载及 Range，检查当时条款与账户限制；在验收记录中写明网络、账户计划和测试结果。
 
 浏览器自动化脚本为 `tests/browser.mjs`。它要求隔离 Chromium 的 CDP 端点、Playwright、`MC_TEST_ORIGIN` 和 `MC_TEST_PASSWORD`；只对可丢弃的测试部署运行，会真实创建目录、上传文件并生成分享。截图写入 `/tmp`，不包含真实用户数据。该流程单独执行，不由默认 check.sh 自动连接生产服务。
+
+局域网入口追加验收：显式配置 LAN_BIND_ADDRESS/LAN_ORIGIN 后，通过非回环 IP 的普通 HTTP 页面测试登录、刷新、上传、下载、分享复制与退出；确认浏览器 isSecureContext=false 时上传校验仍正常。公网继续使用 Secure Cookie，LAN 与公网会话不得跨入口复用，未配置的 Origin/Host 和缺少 CSRF 的写操作必须拒绝。测试脚本为 tests/lan-browser.mjs。

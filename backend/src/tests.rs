@@ -48,6 +48,7 @@ impl Fixture {
                 core: Arc::new(Mutex::new(core)),
                 password: Arc::new(ph),
                 origin: Arc::new("https://cloud.test".into()),
+                lan_origin: Some(Arc::new("http://192.168.0.101:5080".into())),
                 proxy_host: Arc::new("192.0.2.3".into()),
             },
         }
@@ -87,6 +88,40 @@ impl Fixture {
         (
             status,
             h,
+            serde_json::from_slice(&body).unwrap_or(Value::Null),
+        )
+    }
+    async fn request_at(
+        &self,
+        host: &str,
+        origin: &str,
+        method: &str,
+        path: &str,
+        data: Value,
+        auth: Option<(&str, &str)>,
+    ) -> (StatusCode, HeaderMap, Value) {
+        let mut req = axum::http::Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", host)
+            .header("origin", origin)
+            .header("content-type", "application/json");
+        if let Some((cookie, csrf)) = auth {
+            req = req.header("cookie", cookie).header("x-csrf-token", csrf);
+        }
+        let mut req = req.body(Body::from(data.to_string())).unwrap();
+        req.extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:4321".parse::<SocketAddr>().unwrap()));
+        let res = routes(self.app.clone(), "/no-static")
+            .oneshot(req)
+            .await
+            .unwrap();
+        let status = res.status();
+        let headers = res.headers().clone();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            headers,
             serde_json::from_slice(&body).unwrap_or(Value::Null),
         )
     }
@@ -833,4 +868,207 @@ async fn proxy_dns_and_forwarded_ip_trust() {
     headers.insert("cf-connecting-ip", "not-an-ip".parse().unwrap());
     assert_eq!(client_ip(local, &headers, "localhost").await, "127.0.0.1");
     assert_eq!(client_ip(local, &headers, "127.0.0.1").await, "127.0.0.1");
+}
+
+#[test]
+fn lan_origin_is_an_explicit_private_ip_origin() {
+    for origin in [
+        "http://192.168.0.101:5080",
+        "http://10.0.0.5:5080",
+        "http://127.0.0.1:5080",
+        "http://[fd00::1]:5080",
+    ] {
+        assert!(validate_lan_origin(origin).is_ok(), "{origin}");
+    }
+    for origin in [
+        "http://8.8.8.8:5080",
+        "https://192.168.0.101:5080",
+        "http://evil.example:5080",
+        "http://192.168.0.101:5080/",
+        "http://192.168.0.101:5080/extra",
+        "http://192.168.0.101:5080?x=1",
+        "http://user@192.168.0.101:5080",
+        "http://192.168.0.101",
+    ] {
+        assert!(validate_lan_origin(origin).is_err(), "{origin}");
+    }
+}
+#[tokio::test]
+async fn lan_login_cookie_csrf_and_public_session_isolation() {
+    let f = Fixture::new();
+    let host = "192.168.0.101:5080";
+    let origin = "http://192.168.0.101:5080";
+    let (s, h, v) = f
+        .request_at(
+            host,
+            origin,
+            "POST",
+            "/api/auth/login",
+            json!({"password":"correct-test-password"}),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let attr = h["set-cookie"].to_str().unwrap();
+    assert!(attr.starts_with("mc_lan_session="));
+    assert!(attr.contains("HttpOnly"));
+    assert!(attr.contains("SameSite=Strict"));
+    assert!(!attr.contains("Secure"));
+    let lan_cookie = attr.split(';').next().unwrap().to_owned();
+    let csrf = v["csrf"].as_str().unwrap();
+    assert_eq!(
+        f.request_at(
+            host,
+            origin,
+            "GET",
+            "/api/auth/session",
+            json!({}),
+            Some((&lan_cookie, csrf))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.request_at(
+            host,
+            origin,
+            "POST",
+            "/api/nodes",
+            json!({"parent":"root","name":"LAN"}),
+            Some((&lan_cookie, csrf))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.request_at(
+            host,
+            origin,
+            "POST",
+            "/api/nodes",
+            json!({"parent":"root","name":"no-csrf"}),
+            Some((&lan_cookie, ""))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        f.request_at(
+            host,
+            "http://evil.test",
+            "POST",
+            "/api/nodes",
+            json!({"parent":"root","name":"evil"}),
+            Some((&lan_cookie, csrf))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let renamed = lan_cookie.replace("mc_lan_session=", "mc_session=");
+    assert_eq!(
+        f.request_at(
+            "cloud.test",
+            "https://cloud.test",
+            "GET",
+            "/api/auth/session",
+            json!({}),
+            Some((&renamed, csrf))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (public_cookie, public_csrf) = f.auth().await;
+    let renamed_public = public_cookie.replace("mc_session=", "mc_lan_session=");
+    assert_eq!(
+        f.request_at(
+            host,
+            origin,
+            "GET",
+            "/api/auth/session",
+            json!({}),
+            Some((&renamed_public, &public_csrf))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        f.request_at(
+            "192.168.0.102:5080",
+            origin,
+            "POST",
+            "/api/auth/login",
+            json!({"password":"correct-test-password"}),
+            None
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (s, h, _) = f
+        .request_at(
+            host,
+            origin,
+            "POST",
+            "/api/auth/logout",
+            json!({}),
+            Some((&lan_cookie, csrf)),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        h["set-cookie"]
+            .to_str()
+            .unwrap()
+            .starts_with("mc_lan_session=;")
+    );
+    assert!(h["set-cookie"].to_str().unwrap().contains("Max-Age=0"));
+    assert_eq!(
+        f.request_at(
+            host,
+            origin,
+            "GET",
+            "/api/auth/session",
+            json!({}),
+            Some((&lan_cookie, csrf))
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        f.request(
+            "GET",
+            "/api/auth/session",
+            json!({}),
+            Some(&public_cookie),
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+#[tokio::test]
+async fn lan_origin_disabled_rejects_local_login() {
+    let mut f = Fixture::new();
+    f.app.lan_origin = None;
+    assert_eq!(
+        f.request_at(
+            "192.168.0.101:5080",
+            "http://192.168.0.101:5080",
+            "POST",
+            "/api/auth/login",
+            json!({"password":"correct-test-password"}),
+            None
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
 }
