@@ -32,10 +32,11 @@
 | POST | `/shares` | 会话+CSRF；`{root,expires:null或UTC秒}` | `{id,token,url,expires}` |
 | PATCH | `/shares/{id}` | 会话+CSRF；`{expires}` | 更新有效期 |
 | DELETE | `/shares/{id}` | 会话+CSRF | 撤销，`{ok:true}` |
+| DELETE | `/shares/{id}/record` | 会话+CSRF；必须已撤销 | 永久删除分享记录，保留原文件；未撤销返回 409，记录不存在返回 404 |
 | GET | `/public/{token}` | 分享 Token；可选 `node` | `{root,node,nodes}`，无真实路径 |
 | GET | `/public/{token}/nodes/{id}/download` | 分享 Token+当前子树归属 | 逐文件下载流 |
 | GET | `/settings` | 会话 | storage/system/limits |
-| GET | `/settings/audit` | 会话 | 最近最多 1,000 条登录记录 |
+| GET | `/settings/audit` | 会话 | 最近最多 50 条登录记录；启动及每次写入时清理超额记录 |
 | GET | `/settings/backups` | 会话 | 备份文件名数组 |
 | POST | `/settings/backups` | 会话+CSRF | `{name}`，新的一致性备份 |
 | GET | `/settings/backups/{name}` | 会话 | 数据库备份流 |

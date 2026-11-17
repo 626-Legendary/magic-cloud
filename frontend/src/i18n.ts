@@ -2,6 +2,12 @@ import { ref } from "vue";
 export const locale = ref(localStorage.getItem("mc-locale") || "zh");
 export const theme = ref(localStorage.getItem("mc-theme") || "system");
 const en: Record<string, string> = {
+  loginLogsHint: "Only the latest 50 sign-in records are kept.",
+  deleteShareRecord: "Delete record",
+  deleteShareRecordHint:
+    "Permanently delete this revoked share record? The link will remain unavailable. Your original files will be kept.",
+  shareRecordDeleted: "Share record deleted.",
+  share_not_revoked: "Revoke this share before deleting its record.",
   pageNotFoundTitle: "This page wandered off",
   pageNotFoundHint:
     "Maiji couldn’t find this page. Check the address, or head back to your cloud home.",
@@ -171,6 +177,12 @@ const en: Record<string, string> = {
   chunks_in_flight: "Upload is still stopping. Please retry shortly.",
 };
 const zh: Record<string, string> = {
+  loginLogsHint: "仅保留最近 50 条登录记录。",
+  deleteShareRecord: "删除记录",
+  deleteShareRecordHint:
+    "确定永久删除这条已撤销的分享记录？分享链接将继续失效，原文件会保留。",
+  shareRecordDeleted: "分享记录已删除。",
+  share_not_revoked: "请先撤销分享，再删除记录。",
   pageNotFoundTitle: "这个页面走丢了",
   pageNotFoundHint:
     "麦吉没有找到这个页面。检查一下网址，或回到你的云端小窝吧。",

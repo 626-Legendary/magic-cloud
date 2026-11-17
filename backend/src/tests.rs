@@ -411,7 +411,7 @@ async fn auth_csrf_expiry_logout_and_audit() {
             .query_row("SELECT COUNT(*) FROM login_audit", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        1000
+        50
     );
 }
 #[tokio::test]
@@ -1242,5 +1242,175 @@ async fn page_routes_return_real_404_without_breaking_spa_or_assets() {
             .to_str()
             .unwrap()
             .contains("application/json")
+    );
+}
+
+#[tokio::test]
+async fn revoked_share_records_can_be_deleted_without_affecting_files_or_other_shares() {
+    let f = Fixture::new();
+    let n = add_file(
+        &mut f.core(),
+        "root",
+        "shared.txt",
+        b"keep original contents",
+    );
+    let (cookie, csrf) = f.auth().await;
+    let (_, _, share) = f
+        .request(
+            "POST",
+            "/api/shares",
+            json!({"root":n.id}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    let sid = share["id"].as_str().unwrap();
+    let token = share["token"].as_str().unwrap();
+    let endpoint = format!("/api/shares/{sid}/record");
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), None, None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), None)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), Some(&csrf))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/public/{token}"),
+            json!({}),
+            None,
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.request(
+            "DELETE",
+            &format!("/api/shares/{sid}"),
+            json!({}),
+            Some(&cookie),
+            Some(&csrf)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (_, _, other) = f
+        .request(
+            "POST",
+            "/api/shares",
+            json!({"root":n.id}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), Some(&csrf))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        f.request("DELETE", &endpoint, json!({}), Some(&cookie), Some(&csrf))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    let (_, _, listed) = f
+        .request("GET", "/api/shares", json!({}), Some(&cookie), None)
+        .await;
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["id"], other["id"]);
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/public/{token}"),
+            json!({}),
+            None,
+            None
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/public/{}", other["token"].as_str().unwrap()),
+            json!({}),
+            None,
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(!f.core().node(&n.id).unwrap().deleted);
+    assert_eq!(
+        fs::read(f.dir.path().join(n.path)).unwrap(),
+        b"keep original contents"
+    );
+}
+
+#[test]
+fn login_audit_trims_existing_history_on_startup_and_keeps_latest_fifty() {
+    let Fixture { dir, app } = Fixture::new();
+    {
+        let c = app.core.lock().unwrap();
+        for i in 0..70 {
+            c.db.execute(
+                "INSERT INTO login_audit(time,success,ip,category) VALUES(0,?1,?2,'test')",
+                params![i % 2 == 0, i.to_string()],
+            )
+            .unwrap();
+        }
+    }
+    drop(app);
+    let storage = storage::Storage::open(dir.path().to_str().unwrap(), "test-disk", false).unwrap();
+    let c = Core::open(
+        storage,
+        "test-session-secret-at-least-32-characters",
+        "correct-test-password",
+    )
+    .unwrap();
+    let ips: Vec<String> =
+        c.db.prepare("SELECT ip FROM login_audit ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+    assert_eq!(ips, (20..70).map(|i| i.to_string()).collect::<Vec<_>>());
+    c.audit(false, "failed-login", "invalid_credentials")
+        .unwrap();
+    c.audit(true, "successful-login", "success").unwrap();
+    assert_eq!(
+        c.db.query_row("SELECT COUNT(*) FROM login_audit", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        50
+    );
+    assert_eq!(
+        c.db.query_row(
+            "SELECT ip FROM login_audit ORDER BY id DESC LIMIT 1",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        "successful-login"
     );
 }

@@ -469,6 +469,22 @@ async function copy(value: string) {
     fail(e);
   }
 }
+async function deleteShareRecord(s: any) {
+  if (
+    !(await ask(t("deleteShareRecord"), {
+      hint: t("deleteShareRecordHint"),
+      choices: [{ label: t("deleteShareRecord"), value: "yes", danger: true }],
+    }))
+  )
+    return;
+  try {
+    await api(`/shares/${s.id}/record`, "DELETE");
+    await load();
+    notify(t("shareRecordDeleted"));
+  } catch (e) {
+    fail(e);
+  }
+}
 async function createBackup() {
   try {
     await api("/settings/backups", "POST", {});
@@ -1223,7 +1239,9 @@ onUnmounted(() => {
             ><button v-if="!s.revoked" @click="editExpiry(s)">
               {{ t("editExpiry") }}</button
             ><button v-if="!s.revoked" class="danger" @click="revoke(s)">
-              {{ t("revoke") }}
+              {{ t("revoke") }}</button
+            ><button v-else class="danger" @click="deleteShareRecord(s)">
+              <Trash2 :size="16" />{{ t("deleteShareRecord") }}
             </button>
           </article>
         </section>
@@ -1329,6 +1347,7 @@ onUnmounted(() => {
           </section>
           <section class="panel full">
             <h2><ShieldCheck :size="20" />{{ t("loginLogs") }}</h2>
+            <p class="muted">{{ t("loginLogsHint") }}</p>
             <div class="audit-table">
               <div class="audit-row">
                 <strong>{{ t("time") }}</strong><strong>{{ t("ip") }}</strong

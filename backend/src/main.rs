@@ -703,6 +703,29 @@ async fn revoke(State(a): State<App>, Path(id): Path<String>) -> Result<Json<Val
     })
     .await
 }
+async fn delete_share_record(State(a): State<App>, Path(id): Path<String>) -> Result<Json<Value>> {
+    a.run(move |c| {
+        let revoked: Option<bool> =
+            c.db.query_row("SELECT revoked FROM shares WHERE id=?1", [&id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        match revoked {
+            None => return Err(Error::missing()),
+            Some(false) => {
+                return Err(Error(
+                    StatusCode::CONFLICT,
+                    "share_not_revoked",
+                    Value::Null,
+                ));
+            }
+            Some(true) => {}
+        }
+        c.db.execute("DELETE FROM shares WHERE id=?1 AND revoked=1", [id])?;
+        Ok(Json(json!({"ok":true})))
+    })
+    .await
+}
 #[derive(Deserialize)]
 struct Expiry {
     expires: Option<i64>,
@@ -939,7 +962,7 @@ async fn settings(State(a): State<App>) -> Result<Json<Value>> {
     a.run(|c|{let(total,free)=c.storage.space()?;Ok(Json(json!({"storage":{"online":true,"total":total,"free":free,"used":total-free,"safety_margin":c.reserve_bytes.max(total*c.reserve_percent/100)},"system":{"version":env!("CARGO_PKG_VERSION"),"architecture":std::env::consts::ARCH,"os":std::env::consts::OS},"limits":{"max_file_size":MAX_FILE,"chunk_size":CHUNK,"upload_files":2,"chunks_per_file":2}})))}).await
 }
 async fn audit(State(a): State<App>) -> Result<Json<Vec<Value>>> {
-    a.run(|c|Ok(Json(c.db.prepare("SELECT time,success,ip,category FROM login_audit ORDER BY id DESC LIMIT 1000")?.query_map([],|r|Ok(json!({"time":r.get::<_,i64>(0)?,"success":r.get::<_,bool>(1)?,"ip":r.get::<_,String>(2)?,"category":r.get::<_,String>(3)?})))?.collect::<std::result::Result<Vec<_>,_>>()?))).await
+    a.run(|c|Ok(Json(c.db.prepare("SELECT time,success,ip,category FROM login_audit ORDER BY id DESC LIMIT ?1")?.query_map([core::LOGIN_AUDIT_KEEP],|r|Ok(json!({"time":r.get::<_,i64>(0)?,"success":r.get::<_,bool>(1)?,"ip":r.get::<_,String>(2)?,"category":r.get::<_,String>(3)?})))?.collect::<std::result::Result<Vec<_>,_>>()?))).await
 }
 async fn backups(State(a): State<App>) -> Result<Json<Vec<String>>> {
     a.run(|c| {
@@ -1043,6 +1066,7 @@ fn routes(a: App, static_dir: &str) -> Router {
             axum::routing::patch(upload_strategy),
         )
         .route("/api/shares", get(shares).post(create_share))
+        .route("/api/shares/{id}/record", delete(delete_share_record))
         .route("/api/shares/{id}", delete(revoke).patch(expiry))
         .route("/api/public/{token}", get(public))
         .route(

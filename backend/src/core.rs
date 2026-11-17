@@ -14,6 +14,7 @@ use std::{
 };
 pub const CHUNK: u64 = 16 * 1024 * 1024;
 pub const MAX_FILE: u64 = 10_000_000_000;
+pub const LOGIN_AUDIT_KEEP: i64 = 50;
 pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -198,6 +199,7 @@ impl Core {
             .file(".magic-cloud", libc::O_RDONLY | libc::O_DIRECTORY)?
             .sync_all()?;
         c.recover()?;
+        c.prune_login_audit()?;
         Ok(c)
     }
     pub fn guard(&mut self) -> Result<()> {
@@ -215,7 +217,14 @@ impl Core {
             "INSERT INTO login_audit(time,success,ip,category) VALUES(?1,?2,?3,?4)",
             params![now(), success, ip, category],
         )?;
-        self.db.execute("DELETE FROM login_audit WHERE id NOT IN(SELECT id FROM login_audit ORDER BY id DESC LIMIT 1000)",[])?;
+        self.prune_login_audit()?;
+        Ok(())
+    }
+    fn prune_login_audit(&self) -> Result<()> {
+        self.db.execute(
+            "DELETE FROM login_audit WHERE id NOT IN(SELECT id FROM login_audit ORDER BY id DESC LIMIT ?1)",
+            [LOGIN_AUDIT_KEEP],
+        )?;
         Ok(())
     }
     pub fn put_node(&self, n: &Node) -> Result<()> {
