@@ -1,6 +1,6 @@
 # 架构与数据模型
 
-浏览器 → Cloudflare HTTPS/Tunnel → Axum（同源 Vue 静态文件与 `/api`）→ USB ext4。两个容器共享专用 Docker 网络，不发布宿主机端口。后端单实例，SQLite 写入与文件元数据变更通过阻塞工作线程上的互斥核心串行执行；分片网络接收和下载在 Tokio 中流式处理。
+浏览器 → Cloudflare HTTPS/Tunnel → Axum（同源 Vue 静态文件与 `/api`）→ USB ext4。两个容器使用 Compose 自动创建的默认网络，不发布宿主机端口。后端单实例，SQLite 写入与文件元数据变更通过阻塞工作线程上的互斥核心串行执行；分片网络接收和下载在 Tokio 中流式处理。
 
 ## 存储
 

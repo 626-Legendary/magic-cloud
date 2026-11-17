@@ -32,3 +32,12 @@
 - 使用隔离 Docker volume 和 `--network none` 测试镜像，主动取消 PORT 环境变量后，`http://127.0.0.1:5080/health/ready` 返回 `ok`，验证 Rust 默认端口；旧端口未监听。
 - 镜像 EXPOSE 为 5080/tcp；Compose 实际端口为 5080，健康检查跟随 PORT，存储绑定禁止自动创建源目录。
 - 测试容器与 volume 已清理，未启动生产 Tunnel 或修改真实 USB 数据。
+
+## 简化 Compose 与动态代理识别
+
+按用户要求移除两个服务的自定义网络/固定 IP、read_only、cap_drop、security_opt、内存/CPU 上限、tmpfs 和日志配置，改用 Compose 默认网络及 Docker 默认运行设置。保留 USB 安全绑定、现有 UID/GID 和健康检查。Dockerfile 继续使用与 cloud-notebook 类似的多阶段构建结构，分别构建 Vue 与 Rust。
+
+- 示例及本地 `docker compose config --quiet` 均通过；解析结果确认仅有默认网络、无固定 IP 或已移除的运行限制。
+- Rust 测试 19 项通过，包含 DNS 代理识别、非代理头部拒绝和解析失败回退；Clippy 严格检查通过。
+- ARM64 `docker build -t magic-cloud:local .` 成功。
+- 在临时 Docker 网络/volume 中验证：默认 DNS 识别代理；代理重建并取得不同 IP 后继续识别；其他容器占用旧 IP 后，伪造 CF-Connecting-IP 不被采信。临时容器、网络和 volume 已清理，未重建生产服务。

@@ -35,7 +35,7 @@ struct App {
     core: Arc<Mutex<Core>>,
     password: Arc<String>,
     origin: Arc<String>,
-    proxy: Arc<String>,
+    proxy_host: Arc<String>,
 }
 impl App {
     async fn run<T: Send + 'static>(
@@ -150,6 +150,33 @@ async fn security(State(a): State<App>, req: Request, next: Next) -> Response {
     h.insert("content-security-policy",HeaderValue::from_static("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; worker-src 'self' blob:"));
     response
 }
+// Resolve the named connector for each login so container recreation does not
+// leave a stale trusted IP. DNS failure falls back to the TCP peer address.
+async fn trusted_proxy(peer: std::net::IpAddr, host: &str) -> bool {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return peer == ip;
+    }
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        tokio::net::lookup_host((host, 0)),
+    )
+    .await
+    {
+        Ok(Ok(mut addresses)) => addresses.any(|address| address.ip() == peer),
+        _ => false,
+    }
+}
+async fn client_ip(peer: std::net::IpAddr, headers: &HeaderMap, proxy_host: &str) -> String {
+    if trusted_proxy(peer, proxy_host).await
+        && let Some(ip) = headers
+            .get("cf-connecting-ip")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<std::net::IpAddr>().ok())
+    {
+        return ip.to_string();
+    }
+    peer.to_string()
+}
 #[derive(Deserialize)]
 struct Login {
     password: String,
@@ -160,16 +187,7 @@ async fn login(
     headers: HeaderMap,
     Json(v): Json<Login>,
 ) -> Result<Response> {
-    let ip = if peer.ip().to_string() == *a.proxy {
-        headers
-            .get("cf-connecting-ip")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|x| x.parse::<std::net::IpAddr>().ok())
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| peer.ip().to_string())
-    } else {
-        peer.ip().to_string()
-    };
+    let ip = client_ip(peer.ip(), &headers, &a.proxy_host).await;
     let rate_ip = ip.clone();
     a.run(move |c| {
         let n = now();
@@ -972,7 +990,9 @@ async fn start() -> Result<()> {
         core: Arc::new(Mutex::new(c)),
         password: Arc::new(ph),
         origin: Arc::new(origin),
-        proxy: Arc::new(env("TRUSTED_PROXY_IP")?),
+        proxy_host: Arc::new(
+            std::env::var("TRUSTED_PROXY_HOST").unwrap_or_else(|_| "cloudflared".into()),
+        ),
     };
     let thumbnail_jobs = a.clone();
     tokio::spawn(async move {

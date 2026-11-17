@@ -7,10 +7,10 @@
 - `.magic-cloud` 不由静态服务提供，也不在节点、搜索或公开分享接口中枚举。真实文件名不拼接到 shell 命令中。
 - 密码仅来自环境，启动时使用随机盐 Argon2id 派生验证值；数据库不存明文密码。会话 Token 为 256 位随机值，只存 SHA-256。会话绝对有效期七天，配置世代更换、退出及到期均使旧会话无效。
 - 写请求严格检查 Origin；除登录外要求会话关联 CSRF Token。Cookie 为 HttpOnly、Secure、SameSite=Strict、Path=/。登录每来源十分钟最多十次，所有来源合计最多五十次，减少 Argon2 CPU 滥用；应用重启会清空内存限流窗口。
-- 仅当 TCP 对端为 Compose 中固定的 cloudflared IP 时采用 `CF-Connecting-IP`。其他来源的转发头一律忽略。该专用子网不能与已有网络冲突；更改时同时修改后端受信代理地址。
+- 每次登录通过 Docker DNS 解析 `TRUSTED_PROXY_HOST`（默认 cloudflared），仅当 TCP 对端匹配解析地址时采用 `CF-Connecting-IP`。其他来源、DNS 失败或非法客户端 IP 均回退到 TCP 对端地址；不信任整个 Docker 网段。
 - 分享通过摘要检索；所有者重新复制链接使用 ChaCha20-Poly1305 加密副本。公开接口逐次校验有效期、撤销、对象身份与当前祖先链，不按客户端路径读取。
 - 响应带 private/no-store、nosniff、no-referrer 和 CSP；代码文本由 Vue 转义。禁止在 Cloudflare 自定义缓存规则中覆盖这些要求。分享链接在 URL 中属于访问凭据，收到链接的人都可下载，不附加密码。
-- FFmpeg 独立子进程、固定参数、固定 demuxer、仅 pipe 协议，禁用外部网络/本地协议输入，限制线程、地址空间、CPU、执行时间和输出大小；失败降级类型图标。运行镜像非 root、只读系统盘、无 Linux capabilities，不提供 Docker Socket。
+- FFmpeg 独立子进程、固定参数、固定 demuxer、仅 pipe 协议，禁用外部网络/本地协议输入，限制线程、地址空间、CPU、执行时间和输出大小；失败降级类型图标。运行镜像非 root，不提供 Docker Socket；Compose 使用 Docker 默认的文件系统、capabilities、安全选项、资源和日志设置。
 - 上传大小、片序号、片长度、SHA-256、2×2 并发和空间预留由服务端再次检查。未完成文件只存在私有临时区；完整校验通过前不可下载或分享。
 
 数据库备份包含会话及分享元数据，应与原始文件一样保密。SESSION_SECRET 必须独立保存并备份；复制数据库不能替代原始文件备份。日志仅输出通用错误类别、请求 ID 和状态，不记录请求体/URI/会话/Token。

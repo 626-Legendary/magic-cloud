@@ -48,7 +48,7 @@ impl Fixture {
                 core: Arc::new(Mutex::new(core)),
                 password: Arc::new(ph),
                 origin: Arc::new("https://cloud.test".into()),
-                proxy: Arc::new("172.30.56.3".into()),
+                proxy_host: Arc::new("192.0.2.3".into()),
             },
         }
     }
@@ -811,4 +811,26 @@ async fn restoring_purged_item_is_not_found_without_stopping_service() {
             .0,
         StatusCode::OK
     );
+}
+
+#[tokio::test]
+async fn proxy_dns_and_forwarded_ip_trust() {
+    let mut headers = HeaderMap::new();
+    headers.insert("cf-connecting-ip", "203.0.113.25".parse().unwrap());
+    let local = "127.0.0.1".parse().unwrap();
+    assert_eq!(
+        client_ip(local, &headers, "localhost").await,
+        "203.0.113.25"
+    );
+    assert_eq!(
+        client_ip("192.0.2.5".parse().unwrap(), &headers, "localhost").await,
+        "192.0.2.5"
+    );
+    assert_eq!(
+        client_ip(local, &headers, "invalid host name").await,
+        "127.0.0.1"
+    );
+    headers.insert("cf-connecting-ip", "not-an-ip".parse().unwrap());
+    assert_eq!(client_ip(local, &headers, "localhost").await, "127.0.0.1");
+    assert_eq!(client_ip(local, &headers, "127.0.0.1").await, "127.0.0.1");
 }

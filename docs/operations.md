@@ -76,6 +76,6 @@ sudo systemctl stop magic-cloud-storage.timer
 
 Compose 使用 `cloudflared tunnel --no-autoupdate run --token ...`。`.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 必须是控制台连接器安装命令中 `--token` 后的完整令牌，不能只填 Tunnel ID（UUID）。原来的 TUNNEL_TOKEN 环境变量写法同样受官方支持；此处按项目使用习惯统一为命令参数。
 
-在 Tunnel 控制台把 HTTPS 域名指向 `http://magic-cloud:5080`，与 APP_ORIGIN 一致。固定 Docker 子网为 `172.30.56.0/29`，若与已有网络冲突，须同时调整 Compose 地址及 TRUSTED_PROXY_IP。内网也通过同一 HTTPS 域名；断网无离线入口。
+在 Tunnel 控制台把 HTTPS 域名指向 `http://magic-cloud:5080`，与 APP_ORIGIN 一致。Docker 自动分配网络地址；后端通过 `TRUSTED_PROXY_HOST=cloudflared` 解析隧道容器地址，仅在 TCP 对端匹配时采信客户端 IP 头。内网也通过同一 HTTPS 域名；断网无离线入口。
 
 502/503 可能意味着磁盘或后端不可用，不代表密码错误。16 MiB 上传分片仍可能受具体账户/WAF/网络策略限制。公网 10 GB 下载、公开大文件及视频分发必须核实当前 Cloudflare 条款和实测，不能仅凭后端支持 Range 作保证。
