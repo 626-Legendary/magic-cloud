@@ -2299,9 +2299,6 @@ html[lang="zh-CN"] .login-submit-label {
 .login-features li > .lucide {
   color: var(--link);
 }
-.login-features li:first-child > .lucide {
-  color: var(--success);
-}
 .login-features li > span {
   min-width: 0;
 }
