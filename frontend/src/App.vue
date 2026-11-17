@@ -62,6 +62,8 @@ import {
   MAX_FILE,
   type Task,
 } from "./transfer";
+const currentYear = new Date().getFullYear();
+const appVersion = import.meta.env.VITE_APP_VERSION || "1.0.0";
 const route = useRoute(),
   router = useRouter(),
   locationOrigin = location.origin;
@@ -860,7 +862,10 @@ onUnmounted(() => {
           <ShieldCheck :size="16" />{{ t("privacy") }}
         </p>
       </form>
-      <small class="login-footer">{{ t("productLead") }}</small>
+      <footer class="login-footer">
+        <span>© {{ currentYear }} Zexiang Zhang. All rights reserved.</span>
+        <span>Magic Cloud v{{ appVersion }}</span>
+      </footer>
     </section>
   </main>
   <div v-else class="app-shell" @click="menu = ''">

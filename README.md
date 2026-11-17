@@ -74,6 +74,8 @@ LAN_ORIGIN=http://192.168.0.101:5080
 
 ## 构建、测试和运维
 
+登录页 Footer 自动显示浏览器当前年份。版本号由根目录 `.env` 的 `APP_VERSION=1.0.0` 配置（不带 `v`），通过 Compose 构建参数写入前端。修改后执行 `docker compose up -d --build --no-deps magic-cloud` 更新；仅重启容器不会改变版本号。
+
 ```bash
 # 不需要宿主机 Rust 或 Node
 ./deploy/scripts/check.sh

@@ -354,7 +354,7 @@ a {
   align-items: center;
   justify-content: center;
   position: relative;
-  padding: 50px;
+  padding: 50px 50px 100px;
   background: var(--surface);
 }
 .login-form {
@@ -401,6 +401,11 @@ a {
   color: var(--muted);
   font-size: 10px;
   letter-spacing: 0.3px;
+  display: grid;
+  gap: 4px;
+  left: 16px;
+  right: 16px;
+  text-align: center;
 }
 .app-shell {
   display: flex;
@@ -1422,7 +1427,7 @@ a {
     font-size: 28px;
   }
   .login-form-wrap {
-    padding: 40px;
+    padding: 40px 40px 90px;
   }
   .login-footer {
     font-size: 9px;
@@ -1677,7 +1682,7 @@ a {
     padding: 6px;
   }
   .login-form-wrap {
-    padding: 40px 28px 65px;
+    padding: 40px 28px 90px;
     align-items: flex-start;
   }
   .login-form h2 {

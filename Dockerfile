@@ -3,7 +3,8 @@ WORKDIR /src
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+ARG APP_VERSION=1.0.0
+RUN VITE_APP_VERSION="${APP_VERSION}" npm run build
 
 FROM rust:1-bookworm AS backend
 WORKDIR /src
