@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { copyText } from "./browser";
+import heroImage from "./assets/Hero.png";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -808,11 +809,27 @@ onUnmounted(() => {
       </button>
     </div>
     <section class="login-brand">
-      <span class="brand-label"><Cloud :size="23" />{{ t("brand") }}</span>
-      <div class="orb"><img src="/Logo.png" :alt="t('brand')" /></div>
-      <h1>{{ t("tagline") }}</h1>
-      <p>{{ t("heroDescription") }}</p>
-      <p class="hero-support">{{ t("heroSupport") }}</p>
+      <img
+        class="hero-image"
+        :src="heroImage"
+        alt=""
+        aria-hidden="true"
+        width="1122"
+        height="1402"
+        fetchpriority="high"
+        decoding="async"
+      />
+      <div class="hero-shade" aria-hidden="true"></div>
+      <span class="brand-label"
+        ><img src="/Logo.png" alt="" width="42" height="42" />{{
+          t("brand")
+        }}</span
+      >
+      <div class="hero-copy">
+        <h1>{{ t("tagline") }}</h1>
+        <p>{{ t("heroDescription") }}</p>
+        <p class="hero-support">{{ t("heroSupport") }}</p>
+      </div>
       <div class="privacy-pill">
         <ShieldCheck :size="16" />{{ t("secure") }}
       </div>

@@ -266,79 +266,88 @@ a {
   border-color: transparent;
 }
 .login-brand {
-  padding: 48px 60px;
+  padding: 140px 52px 108px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background:
-    radial-gradient(ellipse at 15% 20%, #cbe5ff80, transparent 60%),
-    linear-gradient(145deg, #eef6ff, #e8f3ff 60%, #ddecff);
+  align-items: flex-start;
+  justify-content: flex-start;
+  background: #102a4c;
   position: relative;
-  text-align: center;
-  color: #132e54;
+  text-align: left;
+  color: #fff;
   overflow: hidden;
+  isolation: isolate;
 }
-.login-brand:after {
-  content: "";
+.hero-image {
   position: absolute;
-  width: 500px;
-  height: 500px;
-  border: 1px solid #fff8;
-  border-radius: 50%;
-  bottom: -350px;
-  right: -150px;
-  box-shadow:
-    0 0 0 70px #ffffff30,
-    0 0 0 140px #ffffff20;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 35% 55%;
+  z-index: -2;
+  pointer-events: none;
+}
+.hero-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    #071732dc 0%,
+    #0a2147a6 30%,
+    #0d244614 58%,
+    #06183126 78%,
+    #061831a6 100%
+  );
+  z-index: -1;
+  pointer-events: none;
+}
+.hero-copy {
+  width: 100%;
+  max-width: 480px;
+}
+.hero-copy h1 {
+  text-shadow: 0 2px 20px #06183130;
 }
 .brand-label {
   position: absolute;
-  top: 40px;
+  top: 34px;
   left: 44px;
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 20px;
   font-weight: 700;
+  color: #fff;
 }
-.orb {
-  width: 250px;
-  height: 250px;
-  display: grid;
-  place-items: center;
-  background: radial-gradient(circle, #fff 20%, #ffffff50 65%, transparent 66%);
-  border-radius: 50%;
-  margin-bottom: 30px;
-  box-shadow: 0 20px 65px #3a81c91a;
-}
-.orb img {
-  width: 220px;
-  height: 220px;
+.brand-label img {
   object-fit: contain;
-  filter: drop-shadow(0 12px 14px #2470b81a);
+  filter: drop-shadow(0 3px 8px #06183135);
 }
 .login-brand h1 {
-  font-size: 34px;
-  max-width: 420px;
+  font-size: clamp(30px, 2.5vw, 40px);
+  max-width: 480px;
   line-height: 1.4;
   letter-spacing: -1px;
 }
 .login-brand p {
-  color: #526b8c;
+  color: #e1edff;
   font-size: 15px;
 }
 .privacy-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #bfd7ef;
-  background: #ffffff80;
+  border: 1px solid #ffffff4d;
+  background: #102a4c66;
   border-radius: 30px;
   padding: 8px 15px;
-  color: #3d648d;
+  color: #fff;
   font-size: 12px;
-  margin-top: 30px;
+  position: absolute;
+  bottom: 38px;
+  left: 44px;
+  backdrop-filter: blur(8px);
 }
 .login-form-wrap {
   display: flex;
@@ -1407,7 +1416,7 @@ a {
     grid-column: auto;
   }
   .login-brand {
-    padding: 40px 25px;
+    padding: 130px 30px 100px;
   }
   .login-brand h1 {
     font-size: 28px;
@@ -1620,27 +1629,37 @@ a {
     grid-template-rows: auto 1fr;
   }
   .login-brand {
-    padding: 70px 20px 27px;
-    min-height: 280px;
+    padding: 292px 24px 28px;
+    min-height: 0;
+  }
+  .hero-image {
+    height: 320px;
+    object-position: 50% 65%;
+  }
+  .hero-shade {
+    background: linear-gradient(
+      180deg,
+      #102a4c80 0,
+      #102a4c00 150px,
+      #102a4c 320px
+    );
+  }
+  .hero-copy {
+    max-width: 100%;
   }
   .brand-label {
     top: 24px;
     left: 24px;
     font-size: 18px;
   }
-  .orb {
-    width: 130px;
-    height: 130px;
-    margin-bottom: 14px;
-  }
-  .orb img {
-    width: 120px;
-    height: 120px;
+  .brand-label img {
+    width: 32px;
+    height: 32px;
   }
   .login-brand h1 {
-    font-size: 23px;
-    max-width: 90%;
-    margin-bottom: 6px;
+    font-size: 24px;
+    max-width: 100%;
+    margin-bottom: 10px;
   }
   .login-brand p {
     font-size: 11px;
@@ -1654,7 +1673,7 @@ a {
     right: 18px;
   }
   .login-controls button {
-    color: #234f75;
+    color: #fff;
     padding: 6px;
   }
   .login-form-wrap {
@@ -1799,5 +1818,17 @@ a {
   }
   .about-brand h3 {
     font-size: 16px;
+  }
+}
+
+@media (min-width: 761px) and (max-height: 760px) {
+  .login-brand {
+    padding-top: 108px;
+  }
+  .login-brand h1 {
+    font-size: 30px;
+  }
+  .hero-image {
+    object-position: 35% 0%;
   }
 }
