@@ -175,7 +175,11 @@ try {
   await p.getByRole("checkbox", { name: "选择全部文件", exact: true }).check();
   assert.equal(await p.locator(".file-item.is-selected").count(), 6);
   await p.getByRole("button", { name: "取消选择", exact: true }).click();
-  const row = await p.locator(".file-item").first().boundingBox(),
+  await p
+    .locator(".file-list .file-item")
+    .first()
+    .waitFor({ state: "visible" });
+  const row = await p.locator(".file-list .file-item").first().boundingBox(),
     head = await p.locator(".list-head").boundingBox();
   result.list = { rowHeight: row.height, headerHeight: head.height };
   assert.equal(row.height, 48);
@@ -266,10 +270,12 @@ try {
   result.darkNavContrast = contrast(nav.fg, nav.bg);
   assert(result.darkNavContrast >= 4.5);
   await p.getByRole("link", { name: "我的文件", exact: true }).click();
-  const button = await p.locator(".heading-actions .primary").evaluate((e) => ({
-    fg: getComputedStyle(e).color,
-    bg: getComputedStyle(e).backgroundColor,
-  }));
+  const button = await p
+    .locator('.heading-actions button[aria-controls="upload-actions-dialog"]')
+    .evaluate((e) => ({
+      fg: getComputedStyle(e).color,
+      bg: getComputedStyle(e).backgroundColor,
+    }));
   result.darkButtonContrast = contrast(button.fg, button.bg);
   assert(result.darkButtonContrast >= 4.5);
   await p.screenshot({

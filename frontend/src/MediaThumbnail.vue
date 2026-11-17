@@ -109,11 +109,22 @@ onBeforeUnmount(() => {
 <style scoped>
 .media-thumbnail {
   position: absolute;
-  inset: 0;
+  inset: 12px;
   overflow: hidden;
-  border-radius: inherit;
+  border-radius: 8px;
+  z-index: 1;
+}
+.media-thumbnail > div {
+  position: relative;
+  height: 100%;
+}
+.media-thumbnail:has(img) {
+  box-shadow: var(--mc-shadow-md);
 }
 .media-thumbnail img {
+  position: static;
+  display: block;
+  border-radius: 8px;
   width: 100%;
   height: 100%;
   object-fit: cover;

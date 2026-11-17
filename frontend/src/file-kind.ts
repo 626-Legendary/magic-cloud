@@ -12,3 +12,10 @@ export function fileKind(node: Pick<Node, "kind" | "name">) {
   if (/^(txt|md|rs|js|ts|json|py|html|css)$/.test(ext)) return "document";
   return "unknown";
 }
+
+export function fileNameParts(node: Pick<Node, "kind" | "name">) {
+  const dot = node.name.lastIndexOf(".");
+  if (node.kind === "folder" || dot <= 0 || dot === node.name.length - 1)
+    return { stem: node.name, extension: "" };
+  return { stem: node.name.slice(0, dot), extension: node.name.slice(dot) };
+}

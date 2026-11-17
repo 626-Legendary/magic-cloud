@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { copyText } from "./browser";
 import heroImage from "./assets/Hero.png";
-import { fileKind } from "./file-kind";
+import { fileKind, fileNameParts } from "./file-kind";
 import MediaThumbnail from "./MediaThumbnail.vue";
+import FileArtwork from "./FileArtwork.vue";
 import ShieldHouse from "./icons/ShieldHouse";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -1477,7 +1478,7 @@ onUnmounted(() => {
             <button
               v-if="view === 'files'"
               :aria-label="t('newFolder')"
-              class="new-folder-button"
+              class="new-folder-button primary"
               @click="makeFolder"
             >
               <FolderPlus aria-hidden="true" :size="20" /><span>{{
@@ -1632,22 +1633,41 @@ onUnmounted(() => {
                 @click.stop
                 @dblclick.stop
               />
-              <button class="file-main" @click="openNode(n)">
+              <button
+                class="file-main"
+                :aria-label="n.name"
+                @click="openNode(n)"
+              >
                 <div class="file-symbol">
+                  <FileArtwork
+                    v-if="grid"
+                    :kind="fileKind(n)"
+                    :extension="
+                      fileNameParts(n).extension.slice(1).toLowerCase()
+                    "
+                  />
+                  <component
+                    v-else
+                    aria-hidden="true"
+                    :is="icon(n)"
+                    :size="24"
+                    :stroke-width="2"
+                  />
                   <MediaThumbnail
                     v-if="grid && [Image, Film].includes(icon(n))"
                     :id="n.id"
                     :name="n.name"
                     :video="icon(n) === Film"
-                  /><component
-                    aria-hidden="true"
-                    :is="icon(n)"
-                    :size="grid ? 48 : 24"
                   />
                 </div>
-                <span class="file-name" :title="n.name">{{
-                  n.name
-                }}</span></button
+                <span class="file-name" :title="n.name"
+                  ><span class="file-stem">{{ fileNameParts(n).stem }}</span
+                  ><span
+                    v-if="fileNameParts(n).extension"
+                    class="file-extension"
+                    >{{ fileNameParts(n).extension }}</span
+                  ></span
+                ></button
               ><span class="file-size">{{
                 n.kind === "folder" ? "—" : bytes(n.size)
               }}</span
