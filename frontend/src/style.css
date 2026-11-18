@@ -1720,6 +1720,19 @@ a {
   font-weight: 500;
   margin-top: var(--mc-space-1);
 }
+html:lang(en) .hero-copy h1 {
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+html:lang(en) .hero-copy p {
+  max-width: 38ch;
+  text-wrap: balance;
+}
+html:lang(en) .hero-copy .hero-support {
+  margin-top: var(--mc-space-3);
+  font-weight: 600;
+}
 .share-unavailable {
   padding: var(--mc-space-14) var(--mc-space-7);
   text-align: center;

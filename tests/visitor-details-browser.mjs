@@ -369,7 +369,7 @@ try {
       .getByRole("heading", { name: "Welcome home.", exact: true })
       .waitFor();
     await p
-      .getByText("A little penguin, guarding your digital nest.", {
+      .getByText("Your digital nest.", {
         exact: true,
       })
       .waitFor();

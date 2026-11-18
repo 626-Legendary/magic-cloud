@@ -103,8 +103,8 @@ const en: Record<string, string> = {
   returnHome: "Back to home",
   mascotAlt: "Magi, the Magic Cloud penguin",
   heroDescription:
-    "Photos, videos, and work files — Magi keeps them perfectly organized.",
-  heroSupport: "Upload, organize, and share. Leave the rest to Magi.",
+    "Photos, videos, and work files, neatly organized.",
+  heroSupport: "Upload, organize, share. Leave it to Magi.",
   productBrand: "Magic Cloud · 麦吉云",
   productIntro:
     "Magic Cloud is a lightweight, self-hosted private cloud. Deploy it with Docker on a Linux computer, server, or Raspberry Pi and access files on your internal disk or external storage from a browser.",
@@ -132,7 +132,7 @@ const en: Record<string, string> = {
   not_found: "This item is unavailable. It may have been moved or deleted.",
 
   brand: "Magic Cloud",
-  tagline: "A little penguin, guarding your digital nest.",
+  tagline: "Your digital nest.",
   files: "My files",
   recent: "Recent files",
   shares: "My shares",
