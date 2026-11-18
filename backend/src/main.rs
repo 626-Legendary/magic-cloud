@@ -1132,8 +1132,17 @@ async fn main() {
 }
 async fn start() -> Result<()> {
     let env = |n: &str| std::env::var(n).map_err(|_| Error::bad("missing_configuration"));
+    let external = match std::env::var("STORAGE_MODE")
+        .as_deref()
+        .unwrap_or("external")
+    {
+        "external" => true,
+        "local" => false,
+        _ => return Err(Error::bad("invalid_storage_mode")),
+    };
     if std::env::args().any(|a| a == "--diagnose") {
-        let storage = storage::Storage::open(&env("STORAGE_ROOT")?, &env("STORAGE_ID")?, true)?;
+        let storage =
+            storage::Storage::open_mounted(&env("STORAGE_ROOT")?, &env("STORAGE_ID")?, external)?;
         let report = core::diagnose(&storage)?;
         println!("{}", report);
         return Ok(());
@@ -1143,15 +1152,19 @@ async fn start() -> Result<()> {
     if password.len() < 12 || secret.len() < 32 {
         return Err(Error::bad("weak_configuration"));
     }
-    let origin = env("APP_ORIGIN")?;
-    if !origin.starts_with("https://") || origin.ends_with('/') {
+    let origin = std::env::var("APP_ORIGIN").unwrap_or_default();
+    if !origin.is_empty() && (!origin.starts_with("https://") || origin.ends_with('/')) {
         return Err(Error::bad("https_origin_required"));
     }
     let lan_origin = std::env::var("LAN_ORIGIN").ok().filter(|v| !v.is_empty());
     if let Some(origin) = &lan_origin {
         validate_lan_origin(origin)?;
     }
-    let storage = storage::Storage::open(&env("STORAGE_ROOT")?, &env("STORAGE_ID")?, true)?;
+    if origin.is_empty() && lan_origin.is_none() {
+        return Err(Error::bad("missing_access_origin"));
+    }
+    let storage =
+        storage::Storage::open_mounted(&env("STORAGE_ROOT")?, &env("STORAGE_ID")?, external)?;
     let mut c = Core::open(storage, &secret, &password)?;
     c.reserve_bytes = std::env::var("SAFETY_MARGIN_BYTES")
         .ok()

@@ -1,174 +1,188 @@
 <div align="center">
   <img src="frontend/public/Logo.png" width="96" alt="Magi, the Magic Cloud penguin">
   <h1>Magic Cloud · 麦吉云</h1>
-  <p>A little penguin, guarding your digital nest.</p>
+  <p>Lightweight, self-hosted private storage · v1.0.1</p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 </div>
 
-Magic Cloud is a lightweight, single-user private cloud for the files that matter to you. Upload, organize, and share from your browser while keeping your files and database on your own server.
+Keep your files on your own Linux computer, server, or Raspberry Pi. Manage them in a browser on your LAN, with optional remote access through Cloudflare Tunnel.
 
-Photos, videos, and work files — Magi keeps them perfectly organized. Upload, organize, and share. Leave the rest to Magi.
+## Features
 
-> **Screenshot: Welcome screen**
->
-> Reserved for the sign-in page and its Magi illustration.
-<!-- Replace this block with: ![Magic Cloud welcome screen](docs/screenshots/welcome.png) -->
-
-## Your files, your space
-
-- **Organize with ease.** Folders, filename search, recent files, grid and list views, and bulk move or trash actions.
-- **Upload large files.** Files up to 10 GB, chunked uploads, pause and resume, and folder uploads that preserve their structure.
-- **Share a download.** Read-only links with optional expiry and revocation. Visitors see file information and a download button; file contents are never previewed on the share page.
-- **See what you need.** Image previews, static video covers, audio playback where supported, and UTF-8 text/code previews. Other formats remain available to download.
-- **Make it yours.** English and Chinese, light and dark themes, and a layout that adapts to desktop and mobile.
-- **Keep control.** Local files, SQLite metadata, a 30-day trash, and scheduled database backups.
-
-> **Screenshot: File library**
->
-> Reserved for the running application: folders, type icons, and file cards.
-<!-- Replace this block with: ![Magic Cloud file library](docs/screenshots/files.png) -->
+- Folders, filename search, recent files, grid/list views, and bulk move/trash.
+- Uploads up to 10 GB per file, 16 MiB chunks, pause/resume, and folder uploads. After a refresh, reselect the original file within 24 hours to resume.
+- Image, audio, text/code previews and static video covers. Other formats can be downloaded.
+- Download-only share links with expiry and revocation; 30-day trash.
+- SQLite backups, Chinese/English, and light/dark themes.
 
 ## Requirements
 
-- A Linux server with kernel 5.6 or newer and support for `openat2`.
-- Docker Engine and the Docker Compose plugin. Node.js and Rust are only needed inside the build containers.
-- A dedicated, mounted **ext4 filesystem** for files and the database. The supplied storage scripts use its filesystem UUID and a storage identity marker.
-- For public access: a domain and a Cloudflare Tunnel connector token. A trusted LAN entry point can also be configured.
+- Linux AMD64 or ARM64, kernel 5.6+ with `openat2`. Raspberry Pi 4/5 requires a **64-bit OS**. See [validation results](docs/validation.md) for tested architectures and limits.
+- [Docker Engine](https://docs.docker.com/engine/install/) and the [Compose plugin](https://docs.docker.com/compose/install/linux/). For Raspberry Pi OS 64-bit, use Docker's [Debian instructions](https://docs.docker.com/engine/install/debian/).
+- A dedicated writable directory on persistent storage. An internal disk is enough; external SSDs, HDDs and USB flash drives are optional.
+- Git, Bash, OpenSSL, Python 3 and util-linux for the host setup scripts. Rust and Node.js run inside build containers.
 
-The application uses Vue 3, TypeScript, Rust/Axum, SQLite, and FFmpeg. Docker builds the application on the server.
+On Debian/Ubuntu/Raspberry Pi OS, install host helpers with `sudo apt install git openssl python3 util-linux`. Confirm `docker version` and `docker compose version` work before continuing. The following Docker commands assume your account can access Docker; otherwise use `sudo docker`.
 
-## Quick start
-
-### 1. Configure the application
-
-From the repository directory:
+## Quick deployment
 
 ```bash
+git clone --branch dev https://github.com/626-Legendary/magic-cloud.git
+cd magic-cloud
 cp .env.example .env
 chmod 600 .env
 openssl rand -hex 32
 ```
 
-Use independently generated values for your password and session secret. Edit `.env`:
+Edit `.env`: set your login `APP_PASSWORD` (at least 12 bytes), a separate random `SESSION_SECRET` (at least 32 characters), and the settings below. Run the random generator separately for each credential. Use plain unquoted values; hexadecimal values avoid Compose interpolation issues.
 
-| Variable | Set it to |
-| --- | --- |
-| `APP_PASSWORD` | A unique password of at least 12 bytes |
-| `SESSION_SECRET` | An independent random secret of at least 32 characters |
-| `APP_ORIGIN` | Your exact public HTTPS origin, such as `https://cloud.example.com`, with no trailing slash |
-| `CLOUDFLARE_TUNNEL_TOKEN` | The complete connector token, not the tunnel ID |
-| `STORAGE_MOUNT` | The fixed storage mount point, such as `/mnt/magic-cloud` |
-| `STORAGE_UUID` | The ext4 filesystem UUID reported by `lsblk -f` |
-| `STORAGE_ID` | Fill this in after the initialization step below |
+For a server at `192.168.0.101` using its internal disk:
 
-The storage scripts read plain, unquoted configuration values. Random hexadecimal credentials work well; avoid whitespace, quotes, `#`, and `$` in credentials used by those scripts. See [.env.example](.env.example) for all settings.
+```dotenv
+STORAGE_MODE=local
+STORAGE_MOUNT=/srv/magic-cloud
+LAN_BIND_ADDRESS=192.168.0.101
+LAN_ORIGIN=http://192.168.0.101:5080
+APP_ORIGIN=
+CLOUDFLARE_TUNNEL_TOKEN=
+```
 
-### 2. Mount and initialize storage
-
-Confirm the correct ext4 filesystem with `lsblk -f`, then run:
+Replace the IP with your server's actual LAN IP. Create and explicitly initialize the dedicated directory:
 
 ```bash
 sudo deploy/scripts/storage.sh mount
 sudo deploy/scripts/storage.sh init --initialize-empty
 ```
 
-Copy the printed `STORAGE_ID` into `.env`. Initialization creates the dedicated `files/` and `.magic-cloud/` directories only when both are absent. It does not format the disk, delete existing files, or import files placed there outside the application. Do not reinitialize an existing Magic Cloud storage layout.
-
-For mounting after a server restart, add an entry to `/etc/fstab`, using your actual filesystem UUID and mount point:
-
-```fstab
-UUID=<your-ext4-uuid> /mnt/magic-cloud ext4 defaults,nofail,nodev,nosuid,noexec,x-systemd.device-timeout=10s 0 2
-```
-
-### 3. Configure the tunnel and start
-
-In Cloudflare, route your public hostname to the HTTP service **`http://magic-cloud:5080`**. The public origin must match `APP_ORIGIN`.
+Copy the printed `STORAGE_ID` into `.env`, then start:
 
 ```bash
 sudo deploy/scripts/storage.sh check
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
 ```
 
-Open your configured HTTPS domain and sign in with `APP_PASSWORD`. If builds exceed the server's memory capacity, reduce Rust compilation concurrency:
+Open **http://192.168.0.101:5080** and sign in with `APP_PASSWORD`. There is no separate account setup. The default `.env.example` binds to loopback; set both LAN variables for access from another device.
 
-```bash
-docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud
-docker compose up -d
-```
+## Storage directories
 
-### 4. Enable storage recovery
+**Local directory:** use `STORAGE_MODE=local` and an absolute `STORAGE_MOUNT`, such as `/srv/magic-cloud`. No UUID or dedicated mount point is required. Use a persistent Linux filesystem with file locking, fsync and atomic renames; ext4 is the verified setup.
 
-Copy the files in `deploy/systemd/` to `/etc/systemd/system/`, and update the service's `ExecStart` to the absolute repository path. Then run:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now magic-cloud-storage.timer
-```
-
-The monitor checks storage identity and recreates the application container after the correct storage becomes available again. This step matters for removable storage and recovery after a server restart. See [Operations](docs/operations.md) for failure states and manual recovery.
-
-## Access from your LAN
-
-Add the server's actual LAN address to `.env`:
+**External/dedicated disk:** use `lsblk -f` to identify an existing ext4 filesystem, then configure:
 
 ```dotenv
-PORT=5080
-LAN_BIND_ADDRESS=192.168.0.101
-LAN_ORIGIN=http://192.168.0.101:5080
+STORAGE_MODE=external
+STORAGE_MOUNT=/mnt/magic-cloud
+STORAGE_UUID=your-ext4-filesystem-uuid
 ```
 
-Apply it:
+Run the same `mount`, explicit `init`, and `check` commands above. For existing Magic Cloud storage, keep its original `STORAGE_ID` and **skip initialization**. No script formats disks or imports files copied outside the app.
+
+Compose bind-mounts `STORAGE_MOUNT` at `/data`, with automatic host directory creation disabled. Files are stored in `files/`; SQLite, uploads, trash and backups in `.magic-cloud/`. Initialization assigns these directories to `APP_UID:APP_GID` (default `10001:10001`); don't use `chmod 777`.
+
+After the image has been built, install recovery and boot setup:
 
 ```bash
-docker compose up -d --no-deps --force-recreate magic-cloud
+sudo python3 deploy/scripts/install-storage.py
 ```
 
-Open `http://192.168.0.101:5080`. Public and LAN entry points use the same files and password but have separate sign-in sessions. HTTP is intended for a trusted LAN; use the tunnel's HTTPS domain for public access. A share created from the LAN entry point uses that address, so the recipient must be able to reach it.
+In external mode this verifies the existing disk, fixes its mount at `/mnt/magic-cloud`, backs up and updates `/etc/fstab`, updates `.env`, and enables the systemd recovery timer. In local mode it keeps the configured directory and installs the timer without editing fstab. Both modes recreate the app container. Desktop login is unnecessary. Re-run the installer if the project directory moves.
 
-## A few useful details
+External mode checks UUID, ext4, writability and storage ID. Missing/wrong storage stops service; it never initializes a replacement database in the empty mount directory. Reconnection triggers verification and container recreation. Local mode checks directory identity and the same storage marker/layout, without USB requirements. See [operations and recovery](docs/operations.md).
 
-| Topic | Behavior |
+## Environment variables
+
+See [.env.example](.env.example) for all values.
+
+| Variable | Meaning |
 | --- | --- |
-| Upload limit | 10,000,000,000 bytes per file; 16 MiB chunks |
-| Resuming | Within 24 hours, reselect the original file and verify it to resume; uploads stop when the browser is closed |
-| Trash | Files are permanently removed after 30 days |
-| Backups | Consistent SQLite snapshots, normally every 24 hours; seven retained by default |
-| Preview | Supported images, audio, UTF-8 text/code, and static video covers; PDF and office documents show a download option |
-| Upload time | Recorded separately for new uploads; files without this value show “Not recorded” |
-| Sharing | Download-only visitor pages; links can expire or be revoked |
+| `APP_PASSWORD`, `SESSION_SECRET` | Login password and independent session/encryption secret |
+| `STORAGE_MODE` | `local` or `external`; omitted values retain the older external mode |
+| `STORAGE_MOUNT`, `STORAGE_ID` | Absolute data directory and initialized identity |
+| `STORAGE_UUID` | Filesystem UUID, required only in external mode |
+| `APP_UID`, `APP_GID` | Container user and initialized directory owner; default `10001` |
+| `PORT` | Host and container port; default `5080` |
+| `LAN_BIND_ADDRESS`, `LAN_ORIGIN` | Bind IP and exact trusted HTTP origin, including port |
+| `APP_ORIGIN` | Optional exact public HTTPS origin, without trailing slash |
+| `APP_VERSION` | Build-time UI version, `1.0.1`; rebuild after changing |
+| `BACKUP_INTERVAL_SECONDS`, `BACKUP_KEEP` | Default `86400` seconds and `7` database snapshots |
+| `SAFETY_MARGIN_BYTES`, `SAFETY_MARGIN_PERCENT` | Reserved space: the larger of 2 GiB or 5% by default |
 
-Database backups **do not contain your files**. Keep independent copies of important files and database backups on another device. Manage files through Magic Cloud to keep its index consistent.
+Configure at least one access origin. Trusted LAN HTTP uses a separate session from public HTTPS.
 
-> **Screenshot: Sharing and settings**
->
-> Reserved for the download-only visitor page or application settings.
-<!-- Replace this block with: ![Magic Cloud sharing and settings](docs/screenshots/sharing.png) -->
+## Start, stop and inspect
+
+```bash
+docker compose up -d                    # Background startup
+docker compose ps
+docker compose logs -f --tail=100 magic-cloud
+docker compose restart magic-cloud    # Restart with current configuration
+```
+
+To keep the recovery timer from restarting a deliberately stopped app:
+
+```bash
+sudo systemctl stop magic-cloud-storage.timer  # If installed
+docker compose stop magic-cloud
+# To resume:
+docker compose up -d
+sudo systemctl start magic-cloud-storage.timer
+```
+
+`docker compose down` removes containers/network, keeping bind-mounted data. After editing `.env`, use `docker compose up -d --force-recreate magic-cloud`; `restart` does not apply new variables.
+
+## Cloudflare Tunnel remote access (optional)
+
+Set `APP_ORIGIN=https://cloud.example.com` and `CLOUDFLARE_TUNNEL_TOKEN` to the **full connector token**, not the tunnel UUID. In Cloudflare, route the hostname to **`http://magic-cloud:5080`** (adjust if `PORT` differs).
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+The default startup runs the app without a tunnel or token. If you previously used the tunnel, explicitly enable its `tunnel` profile when recreating it. LAN and public access can coexist. A LAN share is reachable only from that LAN. Proxy request limits and account rules still apply to large transfers.
 
 ## Update and maintain
 
-The footer version comes from `APP_VERSION` in `.env`. It is embedded during the frontend build, so changing it requires a rebuild.
+Back up first, keep the same data directory/ID and secrets, then:
 
 ```bash
-# Build and update the application after following the backup steps below.
+sudo systemctl stop magic-cloud-storage.timer  # If installed
+git pull --ff-only origin dev
+# Set APP_VERSION=1.0.1 in .env for this upgrade.
 docker compose up -d --build --no-deps magic-cloud
-
-# Inspect service status and recent application logs.
 docker compose ps
 docker compose logs --tail=100 magic-cloud
+sudo systemctl start magic-cloud-storage.timer  # If installed
 ```
 
-Before upgrading, export a database backup and keep an independent copy of important files. The project uses a single current database schema; changes to that structure require a matching backup for recovery. Follow the [upgrade and recovery procedure](docs/operations.md).
+If a Pi runs out of memory while building, use `docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud`, then `docker compose up -d`. Changing passwords invalidates old sessions; changing `SESSION_SECRET` also affects copying existing encrypted share links.
 
-## Documentation and development
+## Backups
 
-- [Architecture and storage model](docs/architecture.md)
-- [API reference](docs/api.md)
-- [Security boundaries](docs/security.md)
-- [Operations, backups, and recovery](docs/operations.md)
-- [UI behavior](docs/ui-design.md)
-- [Validation guide](docs/validation.md) and [acceptance checklist](docs/acceptance.md)
+Create/download a consistent SQLite snapshot in **Settings → Backups**. Automatic snapshots do **not** include user files. Keep `.env`/`SESSION_SECRET` and files separately protected.
 
-Run `./deploy/scripts/check.sh` for containerized formatting, tests, static checks, and a build. Browser regression tests require a disposable deployment; see the validation guide.
+For a complete offline backup, stop the timer (if installed) and app, then copy the entire data layout. Example for local storage:
 
-Cloudflare request limits and usage terms depend on your plan and configuration. Check the [Cloudflare upload limits](https://developers.cloudflare.com/network/maximum-upload-size/) for your deployment; support for large files in the application does not guarantee the same limits through every proxy.
+```bash
+sudo systemctl stop magic-cloud-storage.timer  # If installed
+docker compose stop magic-cloud
+sudo install -d -m 700 /var/backups/magic-cloud
+sudo tar -C /srv/magic-cloud -czf /var/backups/magic-cloud/storage.tar.gz files .magic-cloud
+sudo cp .env /var/backups/magic-cloud/env
+docker compose up -d
+sudo systemctl start magic-cloud-storage.timer  # If installed
+```
+
+Use `/mnt/magic-cloud` instead of `/srv/magic-cloud` for external storage. Copy the backup to another device; a backup on the same disk does not protect against disk failure. Follow [manual restoration](docs/operations.md) before restoring SQLite; never mix a snapshot with unrelated WAL/SHM or files.
+
+## FAQ
+
+- **Restart loop / `storage_io_error`:** inspect logs, `lsblk -f`, `findmnt -T <data-directory>` and `sudo deploy/scripts/storage.sh check`. Verify mount, marker and UID/GID. Don't initialize existing data again.
+- **Cannot open port 5080:** default binding is `127.0.0.1`. Set both LAN variables to the server IP/origin, check the firewall, and recreate the container.
+- **Disk missing at boot:** Docker restart policies do not mount host disks. Install the storage recovery task; external storage also needs its fstab entry.
+- **No thumbnail/preview:** unsupported or damaged media falls back to its icon/download. Video is a static cover, not in-browser playback; public shares never preview file contents.
+
+## Technology and development
+
+Vue 3, TypeScript, Vite, Rust/Axum, SQLite and FFmpeg. Run `./deploy/scripts/check.sh` for containerized checks. See [architecture](docs/architecture.md), [API](docs/api.md), [security](docs/security.md), [UI](docs/ui-design.md), and [validation](docs/validation.md). Browser tests require disposable storage.

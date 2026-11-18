@@ -33,10 +33,8 @@ export interface Task {
 export const transfer = reactive({
   tasks: [] as Task[],
   expanded: false,
-  visible: true,
 });
 let running = 0;
-const workers = new Map<string, Worker>();
 function fileHash(
   file: File,
   key: string,
@@ -46,10 +44,8 @@ function fileHash(
     const w = new Worker(new URL("./hash.worker.ts", import.meta.url), {
       type: "module",
     });
-    workers.set(key, w);
     const abort = () => {
       w.terminate();
-      workers.delete(key);
       reject(new DOMException("Aborted", "AbortError"));
     };
     signal.addEventListener("abort", abort, { once: true });
@@ -58,18 +54,15 @@ function fileHash(
       if (task && data.progress) task.hashProgress = data.progress;
       if (data.digest || data.error) {
         w.terminate();
-        workers.delete(key);
         signal.removeEventListener("abort", abort);
         data.digest ? resolve(data.digest) : reject(new Error(data.error));
       }
     };
-    w.onerror = () => {
+    w.onerror = w.onmessageerror = () => {
       w.terminate();
-      workers.delete(key);
       signal.removeEventListener("abort", abort);
       reject(new Error("hash_failed"));
     };
-    w.addEventListener("messageerror", () => reject(new Error("hash_failed")));
     w.postMessage({ file });
   });
 }
@@ -118,7 +111,6 @@ export function enqueue(file: File, parent: string) {
     strategy: "ask",
     hashProgress: 0,
   });
-  transfer.visible = true;
   pump();
 }
 function pump() {

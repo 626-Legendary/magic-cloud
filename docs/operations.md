@@ -2,6 +2,12 @@
 
 ## 存储状态与自动恢复
 
+v1.0.1 支持两种模式：`STORAGE_MODE=external` 校验专用 ext4 挂载的 UUID；`STORAGE_MODE=local` 校验内部磁盘目录，不依赖 USB 或 UUID。两者都检查存储 ID、目录布局及可写状态。已有配置未填写模式时保持外置模式。
+
+镜像构建完成且数据目录已初始化后，执行 `sudo python3 deploy/scripts/install-storage.py` 安装恢复任务。外置模式同时备份并更新 fstab、固定挂载到 `/mnt/magic-cloud`、更新 `.env`；本地模式保留原路径，不修改 fstab。脚本不格式化、不初始化、不复制原始数据，会重建应用容器。已有 fstab 冲突条目需先人工解决。
+
+主动停机、备份或更新前先停止 timer，再停止应用；完成后恢复 timer。Compose 的 `restart: unless-stopped` 不能替代宿主机挂载；异常库可能导致其重复退出，timer 发现存储异常时会停止容器。同一挂载的恢复尝试有锁止标记。
+
 | 状态 | 行为 |
 |---|---|
 | 首次安装、无布局 | 显式 `init --initialize-empty`；其他路径不自动初始化 |
@@ -12,7 +18,7 @@
 | 正确 USB 重插 | 停止应用后尝试正常卸载陈旧挂载，重新按 UUID 挂载、验证并重建容器 |
 | 数据库损坏/操作身份不明 | 后端启动失败；同一挂载不反复启动，保持不可用供人工诊断 |
 
-宿主机监控使用 flock 防止并发启动。发现不可用会清除“已尝试启动”的运行期标记；正确挂载恢复后只尝试一次启动。同一挂载上的异常退出会被锁止，避免每五秒反复创建容器。若旧挂载无法正常卸载，不强制或 lazy 卸载，应先检查占用及内核日志。
+宿主机监控使用 flock 防止并发启动。发现不可用会清除“已尝试启动”的运行期标记；正确挂载恢复后只尝试一次启动。同一挂载上的异常退出会被锁止，同时停止 Docker 重启策略触发的重试，避免每五秒反复创建容器。若旧挂载无法正常卸载，不强制或 lazy 卸载，应先检查占用及内核日志。
 
 ```bash
 sudo deploy/scripts/storage.sh check
@@ -30,6 +36,8 @@ docker compose logs --tail=100 magic-cloud
 sudo rm -f /run/magic-cloud.last-start
 sudo systemctl start magic-cloud-storage.service
 ```
+
+本地模式的恢复任务不会挂载或卸载任何设备；目录或标记不可用时停止后端并等待人工恢复目录。外置模式按下表处理。
 
 监控配置来自仓库 `.env`，不会把它当作 shell 脚本执行；宿主机操作脚本使用简单未加引号的配置值，详见 README。不要把密码或 Token 贴到排错记录中。更改工作目录后同步修改 systemd ExecStart。
 
@@ -79,6 +87,8 @@ sudo systemctl stop magic-cloud-storage.timer
 ## Cloudflare 与网络
 
 Compose 使用 `cloudflared tunnel --no-autoupdate run --token ...`。`.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 必须是控制台连接器安装命令中 `--token` 后的完整令牌，不能只填 Tunnel ID（UUID）。令牌按 Compose 配置传入连接器。
+
+仅 LAN 使用时可将 APP_ORIGIN 与 CLOUDFLARE_TUNNEL_TOKEN 留空，并配置 LAN_ORIGIN。隧道现通过 `docker compose --profile tunnel up -d` 显式启用。
 
 在 Tunnel 控制台把 HTTPS 域名指向 `http://magic-cloud:5080`，与 APP_ORIGIN 一致。Docker 自动分配网络地址；后端通过 `TRUSTED_PROXY_HOST=cloudflared` 解析隧道容器地址，仅在 TCP 对端匹配时采信客户端 IP 头。公网使用 HTTPS 域名；配置 `LAN_BIND_ADDRESS` 和 `LAN_ORIGIN` 后，内网可通过服务器 IP:5080 直接访问，断网时该入口仍可使用。
 

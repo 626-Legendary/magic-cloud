@@ -34,7 +34,7 @@ try {
     } else if (path === "/api/nodes")
       data = { nodes: [node], breadcrumbs: [{ id: "root", name: "Root" }] };
     else if (path === "/api/settings")
-      data = { storage: { used: 1, total: 100 }, system: { version: "1.0.0" } };
+      data = { storage: { used: 1, total: 100 }, system: { version: "1.0.1" } };
     else if (path.startsWith("/api/public/"))
       data = { root: node, node, nodes: [] };
     await route.fulfill({

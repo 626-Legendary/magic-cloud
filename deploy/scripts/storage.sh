@@ -13,15 +13,35 @@ value() {
 }
 load_disk() {
   mount_path=$(value STORAGE_MOUNT)
-  disk_uuid=$(value STORAGE_UUID)
-  [[ "$mount_path" =~ ^/[a-zA-Z0-9_/-]+$ && "$mount_path" != / && "$disk_uuid" =~ ^[a-fA-F0-9-]+$ ]] || { echo 'Invalid mount path or UUID' >&2; exit 1; }
+  if grep -q '^STORAGE_MODE=' "$config"; then
+    storage_mode=$(value STORAGE_MODE)
+  else
+    storage_mode=external
+  fi
+  [[ "$storage_mode" == external || "$storage_mode" == local ]] || { echo 'Invalid STORAGE_MODE' >&2; exit 1; }
+  [[ "$mount_path" =~ ^/[a-zA-Z0-9_/-]+$ && "$mount_path" != / ]] || { echo 'Invalid storage path' >&2; exit 1; }
+  if [[ "$storage_mode" == external ]]; then
+    disk_uuid=$(value STORAGE_UUID)
+    [[ "$disk_uuid" =~ ^[a-fA-F0-9-]+$ ]] || { echo 'Invalid filesystem UUID' >&2; exit 1; }
+  fi
 }
 check_mount() {
+  [[ -d "$mount_path" && "$(readlink -f -- "$mount_path")" == "$mount_path" ]] || return 1
+  if [[ "$storage_mode" == local ]]; then
+    [[ ",$(findmnt -rn -T "$mount_path" -o OPTIONS)," == *,rw,* ]]
+    return
+  fi
   mountpoint -q -- "$mount_path" || return 1
   [[ "$(findmnt -rn -M "$mount_path" -o UUID)" == "$disk_uuid" ]] || return 1
   [[ "$(findmnt -rn -M "$mount_path" -o FSTYPE)" == ext4 ]] || return 1
   [[ ",$(findmnt -rn -M "$mount_path" -o OPTIONS)," == *,rw,* ]] || return 1
-  [[ "$(readlink -f -- "$mount_path")" == "$mount_path" ]] || return 1
+}
+mount_signature() {
+  if [[ "$storage_mode" == external ]]; then
+    findmnt -rn -M "$mount_path" -o ID,MAJ:MIN
+  else
+    printf '%s %s' "$(findmnt -rn -T "$mount_path" -o ID,MAJ:MIN)" "$(stat -c '%d:%i' -- "$mount_path")"
+  fi
 }
 check_identity() {
   check_mount || return 1
@@ -33,7 +53,7 @@ check_identity() {
   for d in files .magic-cloud/database .magic-cloud/uploads .magic-cloud/trash .magic-cloud/thumbnails .magic-cloud/backups .magic-cloud/operations; do
     [[ -d "$mount_path/$d" && ! -L "$mount_path/$d" ]] || return 1
   done
-  # Probe the USB, never the underlying mountpoint directory.
+  # Probe the data disk, never the underlying mountpoint directory.
   local probe
   probe=$(mktemp "$mount_path/.magic-cloud/.probe.XXXXXXXX") || return 1
   printf 'ok' > "$probe" && sync -f "$probe" && rm -- "$probe"
@@ -42,8 +62,13 @@ compose() { docker compose --project-directory "$project" --env-file "$config" "
 load_disk
 case "${1:-check}" in
  mount)
+   if [[ "$storage_mode" == local ]]; then
+     mkdir -p -- "$mount_path"
+     check_mount || { echo 'Local data directory is not ready' >&2; exit 1; }
+     exit 0
+   fi
    if ! mountpoint -q -- "$mount_path"; then
-     [[ -b "/dev/disk/by-uuid/$disk_uuid" ]] || { echo 'Expected USB is absent' >&2; exit 1; }
+     [[ -b "/dev/disk/by-uuid/$disk_uuid" ]] || { echo 'Expected data disk is absent' >&2; exit 1; }
      mkdir -p -- "$mount_path"
      mount -t ext4 -o nodev,nosuid,noexec "UUID=$disk_uuid" "$mount_path"
    fi
@@ -51,7 +76,7 @@ case "${1:-check}" in
    ;;
  init)
    [[ "${2:-}" == --initialize-empty ]] || { echo 'Explicit --initialize-empty is required' >&2; exit 1; }
-   check_mount || { echo 'Expected ext4 USB is not mounted' >&2; exit 1; }
+   check_mount || { echo 'Configured storage is not ready' >&2; exit 1; }
    [[ ! -e "$mount_path/.magic-cloud" && ! -L "$mount_path/.magic-cloud" && ! -e "$mount_path/files" && ! -L "$mount_path/files" ]] || { echo 'Existing storage: initialization refused' >&2; exit 1; }
    app_uid=$(value APP_UID); app_gid=$(value APP_GID)
    [[ "$app_uid" =~ ^[0-9]+$ && "$app_gid" =~ ^[0-9]+$ && "$app_uid" -gt 0 && "$app_gid" -gt 0 ]] || exit 1
@@ -66,7 +91,7 @@ case "${1:-check}" in
    ;;
  check)
    check_identity || { echo 'Storage is not ready; refusing backend startup' >&2; exit 1; }
-   echo 'Expected USB identity and writable ext4 mount verified'
+   echo 'Expected storage identity and writable location verified'
    ;;
  reconcile)
    exec 9>"$run_dir/lock/magic-cloud-recovery.lock"
@@ -75,13 +100,13 @@ case "${1:-check}" in
      rm -f "$run_dir/magic-cloud.last-start"
      # Stop backend before attempting a different bind mount.
      compose stop -t 5 magic-cloud >/dev/null
-     if [[ -b "/dev/disk/by-uuid/$disk_uuid" ]]; then
+     if [[ "$storage_mode" == external ]] && [[ -b "/dev/disk/by-uuid/$disk_uuid" ]]; then
        if mountpoint -q -- "$mount_path"; then
          current_mount_id=$(findmnt -rn -M "$mount_path" -o ID)
          previously_verified=false
          if [[ -f "$run_dir/magic-cloud.verified-mount" && "$(cat "$run_dir/magic-cloud.verified-mount")" == "$disk_uuid:$current_mount_id" ]]; then previously_verified=true; fi
          if [[ "$(findmnt -rn -M "$mount_path" -o UUID)" == "$disk_uuid" || "$previously_verified" == true ]]; then
-           umount -- "$mount_path" || { echo 'Cannot detach stale USB mount' >&2; exit 1; }
+           umount -- "$mount_path" || { echo 'Cannot detach stale data disk mount' >&2; exit 1; }
          fi
        fi
        if ! mountpoint -q -- "$mount_path"; then "$0" mount >/dev/null; fi
@@ -91,11 +116,15 @@ case "${1:-check}" in
    cid=$(compose ps -a -q magic-cloud)
    state=missing
    [[ -z "$cid" ]] || state=$(docker inspect -f '{{.State.Status}}' "$cid")
-   mount_id=$(findmnt -rn -M "$mount_path" -o ID)
-   printf '%s' "$disk_uuid:$mount_id" > "$run_dir/magic-cloud.verified-mount"
-   signature=$(findmnt -rn -M "$mount_path" -o ID,MAJ:MIN)
+   if [[ "$storage_mode" == external ]]; then
+     mount_id=$(findmnt -rn -M "$mount_path" -o ID)
+     printf '%s' "$disk_uuid:$mount_id" > "$run_dir/magic-cloud.verified-mount"
+   fi
+   signature=$(mount_signature)
    if [[ "$state" != running ]]; then
      if [[ -f "$run_dir/magic-cloud.last-start" && "$(cat "$run_dir/magic-cloud.last-start")" == "$signature" ]]; then
+       # A Docker restart policy must not bypass the recovery latch.
+       compose stop -t 5 magic-cloud >/dev/null
        echo 'Backend exited on this mount; inspect logs, then remove the last-start latch to retry' >&2
        exit 1
      fi

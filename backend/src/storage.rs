@@ -36,6 +36,22 @@ pub fn name(s: &str) -> Result<()> {
     Ok(())
 }
 impl Storage {
+    pub fn open_mounted(path: &str, marker: &str, external: bool) -> Result<Self> {
+        // Both modes require a bind mount in production. Local directories do not
+        // require a dedicated ext4 filesystem, but never use container-only data.
+        Self::check_mountpoint(path)?;
+        Self::open(path, marker, external)
+    }
+    fn check_mountpoint(path: &str) -> Result<()> {
+        let mounts = std::fs::read_to_string("/proc/self/mountinfo")?;
+        if !mounts
+            .lines()
+            .any(|l| l.split_whitespace().nth(4) == Some(path))
+        {
+            return Err(Error::bad("mountpoint_required"));
+        }
+        Ok(())
+    }
     pub fn open(path: &str, marker: &str, strict: bool) -> Result<Self> {
         let root = std::fs::OpenOptions::new()
             .read(true)
@@ -86,13 +102,7 @@ impl Storage {
             {
                 return Err(Error::bad("ext4_required"));
             }
-            let mounts = std::fs::read_to_string("/proc/self/mountinfo")?;
-            if !mounts
-                .lines()
-                .any(|l| l.split_whitespace().nth(4) == Some(self.path.as_str()))
-            {
-                return Err(Error::bad("mountpoint_required"));
-            }
+            Self::check_mountpoint(&self.path)?;
         }
         for dir in [
             "files",
@@ -209,5 +219,15 @@ mod tests {
             assert!(name(n).is_err())
         }
         assert!(name("照片 (1).png").is_ok());
+    }
+    #[test]
+    fn production_storage_requires_a_mount_in_both_modes() {
+        let directory = tempfile::tempdir().unwrap();
+        for external in [false, true] {
+            let error =
+                Storage::open_mounted(directory.path().to_str().unwrap(), "marker", external)
+                    .unwrap_err();
+            assert_eq!(error.1, "mountpoint_required");
+        }
     }
 }

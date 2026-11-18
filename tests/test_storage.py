@@ -41,6 +41,32 @@ esac''')
         self.assertEqual(self.check(), 0)
     def test_unmounted_directory_is_refused(self):
         self.assertNotEqual(self.check(TEST_MOUNT_FAILURE='1'), 0)
+    def test_local_directory_does_not_require_mountpoint_uuid_or_ext4(self):
+        with self.config.open('a') as config:
+            config.write('STORAGE_MODE=local\n')
+        self.assertEqual(self.check(TEST_MOUNT_FAILURE='1', TEST_UUID='other', TEST_FS='xfs'), 0)
+        (self.disk / '.magic-cloud/storage-id').unlink()
+        self.assertNotEqual(self.check(), 0)
+    def test_local_recovery_never_mounts_or_unmounts_missing_directory(self):
+        with self.config.open('a') as config:
+            config.write('STORAGE_MODE=local\n')
+        (self.disk / '.magic-cloud/storage-id').unlink()
+        runtime = self.root / 'run'
+        (runtime / 'lock').mkdir(parents=True)
+        calls = self.root / 'calls'
+        for command in ('docker', 'mount', 'umount'):
+            self.stub(command, f'echo {command} "$*" >> "$TEST_CALLS"')
+        result = subprocess.run(['bash', str(SCRIPT), 'reconcile'],
+                                env=dict(self.env, MC_RUN_DIR=str(runtime), TEST_CALLS=str(calls)),
+                                capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('stop -t 5 magic-cloud', calls.read_text())
+        self.assertNotIn('mount ', calls.read_text())
+        self.assertNotIn(' up ', calls.read_text())
+    def test_invalid_storage_mode_is_refused(self):
+        with self.config.open('a') as config:
+            config.write('STORAGE_MODE=invalid\n')
+        self.assertNotEqual(self.check(), 0)
     def test_wrong_uuid_and_filesystem(self):
         self.assertNotEqual(self.check(TEST_UUID='wrong-disk'), 0)
         self.assertNotEqual(self.check(TEST_FS='vfat'), 0)
@@ -68,6 +94,7 @@ esac''')
         second = subprocess.run(['bash', str(SCRIPT), 'reconcile'], env=env, capture_output=True)
         self.assertNotEqual(second.returncode, 0)
         self.assertEqual(calls.read_text().count('--force-recreate'), 1)
+        self.assertIn('stop -t 5 magic-cloud', calls.read_text())
 
     def test_config_is_not_executed(self):
         sentinel = self.root / 'executed'

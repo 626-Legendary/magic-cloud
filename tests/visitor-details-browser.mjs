@@ -42,11 +42,20 @@ const examples = [
     mtime: 1700000000,
   },
   { id: "empty", name: "Empty.txt", kind: "file", size: 0, mtime: 1700000000 },
+  ...["EXE", "7Z", "ZIP", "RAR", "JSON", "JS", "TS", "PY", "unrecognized"].map(
+    (extension) => ({
+      id: extension,
+      name: `Example.${extension}`,
+      kind: "file",
+      size: 1,
+      mtime: 1700000000,
+    }),
+  ),
 ];
 const nodes = { nodes: examples, breadcrumbs: [{ id: "root", name: "Root" }] };
 const fixtureSystem = {
   storage: { total: 1000000000, used: 1000 },
-  system: { version: "1.0.0" },
+  system: { version: "1.0.1" },
 };
 const errors = [];
 async function context(mode = "owner", language = "zh", width = 1280) {
@@ -71,6 +80,8 @@ async function context(mode = "owner", language = "zh", width = 1280) {
       if (mode === "login") status = 401;
       data = { csrf: "fixture-only" };
     } else if (path === "/api/nodes") data = nodes;
+    else if (path === "/api/trash")
+      data = examples.map((node) => ({ ...node, deleted_at: 1700000000 }));
     else if (path === "/api/settings") data = fixtureSystem;
     else if (path === "/api/shares")
       data = [
@@ -118,6 +129,31 @@ try {
     );
     await p.goto(base + "/files/root");
     await p.locator(".file-item").first().waitFor();
+    for (const example of examples) {
+      const row = p
+        .locator(".file-item")
+        .filter({
+          has: p.getByRole("button", { name: example.name, exact: true }),
+        });
+      const badge = row.locator(".document-badge");
+      const extension = example.name.split(".").at(-1);
+      assert.equal(
+        await badge.textContent(),
+        extension === "unrecognized" ? "FILE" : extension.toUpperCase(),
+      );
+      const paper = await row.locator(".document-artwork").boundingBox();
+      const label = await badge.boundingBox();
+      assert(label.x + label.width >= paper.x + paper.width - 1);
+      assert(label.y + label.height <= paper.y + paper.height);
+    }
+    await screenshot(p, `file-badges-grid-${width}`);
+    await p.getByRole("button", { name: "切换视图 list", exact: true }).click();
+    assert.equal(
+      await p.locator(".document-artwork.is-compact").count(),
+      examples.length,
+    );
+    await screenshot(p, `file-badges-list-${width}`);
+    await p.getByRole("button", { name: "切换视图 grid", exact: true }).click();
     assert.equal(
       await p
         .locator(".new-folder-button")
@@ -246,6 +282,30 @@ try {
       requests.filter((path) => path === "/api/shares/fixture-share").length,
       1,
     );
+    await p.goto(base + "/trash");
+    await p.locator(".data-row .document-badge").first().waitFor();
+    assert.equal(
+      await p.locator(".data-row .document-badge").count(),
+      examples.length,
+    );
+    await p.goto(base + "/settings");
+    await p.locator(".about-panel").waitFor();
+    assert.match(await p.locator(".about-panel").innerText(), /v1\.0\.1/);
+    assert.equal(await p.locator(".about-panel li").count(), 5);
+    assert.match(
+      await p.locator(".about-panel").innerText(),
+      /支持本地及外置磁盘存储/,
+    );
+    await p.locator("#language-preference").selectOption("en");
+    assert.match(
+      await p.locator(".about-panel").innerText(),
+      /Internal directories and external data disks/,
+    );
+    assert.equal(
+      await p.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    await screenshot(p, `about-${width}`);
     await c.close();
   }
   for (const width of [1280, 320]) {
@@ -287,6 +347,10 @@ try {
       "Example.pdf",
     );
     assert.equal((await card.textContent()).split("Example.pdf").length - 1, 2);
+    assert.deepEqual(await card.locator(".document-badge").allTextContents(), [
+      "PDF",
+      "PDF",
+    ]);
     assert.equal(
       requests.some((path) => /\/(thumbnail|text|download)$/.test(path)),
       false,
@@ -309,6 +373,7 @@ try {
         exact: true,
       })
       .waitFor();
+    await p.getByText("Your files, under your control", { exact: true }).waitFor();
     await screenshot(p, `login-${width}`);
     assert.deepEqual(
       await p.locator(".login-features li span").allTextContents(),
@@ -343,7 +408,7 @@ try {
   await unavailable.c.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS preview/details, centered upload, download-only visitor, encrypted-sharing label, expiry presets/no zero, revoke confirmation/cancel, shortened errors and English login at desktop/mobile sizes",
+    "PASS unified badges in grid/list/trash/details/share, bilingual about v1.0.1, preview/details, centered upload, download-only visitor, expiry/revoke and responsive English login",
   );
 } finally {
   await browser.close();

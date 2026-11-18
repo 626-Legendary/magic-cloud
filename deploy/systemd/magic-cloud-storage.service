@@ -1,5 +1,5 @@
 [Unit]
-Description=Verify Magic Cloud USB and reconcile backend mount
+Description=Verify Magic Cloud data disk and reconcile backend mount
 After=docker.service network-online.target
 Requires=docker.service
 

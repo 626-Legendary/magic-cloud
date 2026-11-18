@@ -139,14 +139,6 @@ a {
 .muted {
   color: var(--muted);
 }
-.eyebrow {
-  font-size: var(--mc-font-caption);
-  letter-spacing: 2px;
-  color: var(--muted);
-  font-weight: 600;
-  display: block;
-  margin-bottom: var(--mc-space-3);
-}
 .icon-button {
   padding: var(--mc-space-1);
   width: var(--mc-control-height);
@@ -969,6 +961,7 @@ a {
 }
 .panel-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--mc-space-2);
@@ -1013,11 +1006,14 @@ a {
 }
 .settings-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--mc-space-5);
 }
 .settings-grid .full {
   grid-column: 1/-1;
+}
+.settings-grid > .panel {
+  min-width: 0;
 }
 .setting-row {
   display: flex;
@@ -1406,7 +1402,7 @@ a {
     font-size: var(--mc-font-h3);
   }
   .settings-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .settings-grid .full {
     grid-column: auto;
@@ -1770,12 +1766,6 @@ a {
   margin: 0;
   font-size: var(--mc-font-h3);
   font-weight: 600;
-}
-.about-panel summary {
-  cursor: pointer;
-  color: var(--link);
-  font-size: var(--mc-font-secondary);
-  padding: var(--mc-space-2) 0;
 }
 .brand-story {
   max-width: 850px;
@@ -2419,7 +2409,7 @@ body:has(.upload-choice-dialog[open]) {
   bottom: 6px;
   right: -4px;
   min-width: 32px;
-  max-width: 64px;
+  max-width: 80px;
   padding: 4px 6px;
   border-radius: 6px;
   background: var(--surface);
@@ -2456,22 +2446,6 @@ body:has(.upload-choice-dialog[open]) {
   color: inherit;
 }
 
-.type-artwork {
-  display: grid;
-  place-items: center;
-  gap: var(--mc-space-2);
-  max-width: 75%;
-}
-.type-artwork > .lucide {
-  max-width: 100%;
-  stroke-width: 2.2;
-  filter: drop-shadow(0 3px 3px rgb(15 23 42 / 8%));
-}
-.artwork-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
 .presentation,
 .presentation .file-symbol {
   color: var(--file-presentation);
@@ -2499,9 +2473,6 @@ body:has(.upload-choice-dialog[open]) {
 .design,
 .design .file-symbol {
   color: var(--file-design);
-}
-.document .document-artwork > .lucide {
-  fill: none;
 }
 
 .file-detail-layout {
@@ -2720,4 +2691,39 @@ body:has(.upload-choice-dialog[open]) {
 }
 .file-symbol:has(.media-thumbnail img) > .media-artwork {
   visibility: hidden;
+}
+
+/* The same paper and corner badge scale down for lists and trash rows. */
+.document-artwork.is-compact {
+  width: 32px;
+  height: 36px;
+  max-width: none;
+  flex-shrink: 0;
+}
+.document-artwork.is-compact .document-badge {
+  bottom: 2px;
+  right: -2px;
+  min-width: 16px;
+  max-width: 42px;
+  padding: 1px 2px;
+  border-radius: 3px;
+  font-size: 7px;
+}
+.folder-artwork.is-compact {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.file-list .file-symbol {
+  width: 36px;
+  height: 36px;
+}
+.brand-story h4 {
+  margin-bottom: var(--mc-space-2);
+}
+.brand-story ul {
+  color: var(--text-secondary);
+  font-size: var(--mc-font-secondary);
+  line-height: 1.9;
+  padding-left: var(--mc-space-5);
 }

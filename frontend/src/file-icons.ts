@@ -1,21 +1,7 @@
-import {
-  Folder,
-  Image,
-  Video,
-  Music,
-  FileText,
-  Table,
-  Presentation,
-  Archive,
-  FileCode,
-  AppWindow,
-  Laptop,
-  Terminal,
-  Smartphone,
-  PenTool,
-  File,
-} from "lucide-vue-next";
+import { Folder, Image, Video, Music, FileText } from "lucide-vue-next";
 import type { FileKind } from "./file-kind";
+
+// Non-media files share a paper silhouette; FileArtwork adds their type badge.
 export const fileIcons = {
   folder: Folder,
   image: Image,
@@ -23,14 +9,14 @@ export const fileIcons = {
   audio: Music,
   pdf: FileText,
   word: FileText,
-  excel: Table,
-  presentation: Presentation,
-  archive: Archive,
-  document: FileCode,
-  windows: AppWindow,
-  macos: Laptop,
-  linux: Terminal,
-  android: Smartphone,
-  design: PenTool,
-  unknown: File,
+  excel: FileText,
+  presentation: FileText,
+  archive: FileText,
+  document: FileText,
+  windows: FileText,
+  macos: FileText,
+  linux: FileText,
+  android: FileText,
+  design: FileText,
+  unknown: FileText,
 } satisfies Record<FileKind, unknown>;

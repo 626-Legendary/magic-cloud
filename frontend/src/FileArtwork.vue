@@ -3,18 +3,15 @@ import { useId } from "vue";
 import { Music, AudioLines } from "lucide-vue-next";
 import { fileIcons } from "./file-icons";
 import type { FileKind } from "./file-kind";
-defineProps<{ kind: FileKind; extension: string }>();
+defineProps<{ kind: FileKind; extension: string; compact?: boolean }>();
 const gradientId = useId();
-const labels: Record<string, string> = {
-  word: "W",
-  pdf: "PDF",
-};
 </script>
 
 <template>
   <svg
     v-if="kind === 'folder'"
     class="folder-artwork"
+    :class="{ 'is-compact': compact }"
     viewBox="0 0 96 80"
     fill="none"
     aria-hidden="true"
@@ -48,6 +45,12 @@ const labels: Record<string, string> = {
       opacity=".65"
     />
   </svg>
+  <component
+    :is="fileIcons[kind]"
+    v-else-if="compact && ['audio', 'image', 'video'].includes(kind)"
+    :size="24"
+    aria-hidden="true"
+  />
   <div v-else-if="kind === 'audio'" class="audio-artwork" aria-hidden="true">
     <AudioLines :size="68" :stroke-width="1.8" class="audio-wave" />
     <Music :size="32" :stroke-width="2.3" />
@@ -60,21 +63,16 @@ const labels: Record<string, string> = {
     <component :is="fileIcons[kind]" :size="48" :stroke-width="2.2" />
   </div>
   <div
-    v-else-if="['pdf', 'word', 'document', 'unknown'].includes(kind)"
+    v-else
     class="document-artwork"
+    :class="{ 'is-compact': compact }"
     aria-hidden="true"
   >
     <component :is="fileIcons[kind]" :size="68" :stroke-width="1.8" />
     <span class="document-badge">{{
-      labels[kind]
-        ? labels[kind]
-        : (extension || "FILE").toUpperCase().slice(0, 5)
-    }}</span>
-  </div>
-  <div v-else class="type-artwork" aria-hidden="true">
-    <component :is="fileIcons[kind]" :size="64" :stroke-width="2.2" />
-    <span class="artwork-label">{{
-      (extension || kind).toUpperCase().slice(0, 8)
+      kind === "unknown"
+        ? "FILE"
+        : (extension || "FILE").toUpperCase().slice(0, 8)
     }}</span>
   </div>
 </template>

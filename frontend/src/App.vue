@@ -2,7 +2,6 @@
 import { copyText } from "./browser";
 import heroImage from "./assets/Hero.png";
 import { fileKind, fileNameParts } from "./file-kind";
-import { fileIcons } from "./file-icons";
 import { shareExpiryOptions, shareExpiryTimestamp } from "./share-expiry";
 import MediaThumbnail from "./MediaThumbnail.vue";
 import FileMetadata from "./FileMetadata.vue";
@@ -82,7 +81,7 @@ const loginFeatures = [
   { key: "featureDownload", icon: CloudDownload },
   { key: "featureSync", icon: RefreshCw },
 ];
-const appVersion = import.meta.env.VITE_APP_VERSION || "1.0.0";
+const appVersion = import.meta.env.VITE_APP_VERSION || "1.0.1";
 const route = useRoute(),
   router = useRouter(),
   locationOrigin = location.origin;
@@ -470,9 +469,6 @@ async function refreshStorage() {
   } catch {
     /* Main view reports availability failures. */
   }
-}
-function icon(n: Node) {
-  return fileIcons[fileKind(n)];
 }
 function kindClass(n: Node) {
   return fileKind(n);
@@ -1238,11 +1234,11 @@ onUnmounted(() => {
           class="public-file"
           @click="publicOpen(n)"
         >
-          <component
-            aria-hidden="true"
-            :is="icon(n)"
+          <FileArtwork
+            :kind="fileKind(n)"
+            :extension="fileNameParts(n).extension.slice(1)"
             :class="kindClass(n)"
-            :size="24"
+            compact
           />
           <span class="file-name"
             ><span class="file-stem">{{ fileNameParts(n).stem }}</span
@@ -1279,21 +1275,21 @@ onUnmounted(() => {
             :class="kindClass(publicData.node)"
             aria-hidden="true"
           >
-            <component
-              :is="icon(publicData.node)"
-              :size="64"
-              :stroke-width="2"
+            <FileArtwork
+              :kind="fileKind(publicData.node)"
+              :extension="fileNameParts(publicData.node).extension.slice(1)"
+              :class="kindClass(publicData.node)"
             />
           </div>
           <FileMetadata :node="publicData.node" />
         </div>
         <div class="shared-download-area">
           <div class="shared-download-file">
-            <component
-              :is="icon(publicData.node)"
-              :size="24"
+            <FileArtwork
+              :kind="fileKind(publicData.node)"
+              :extension="fileNameParts(publicData.node).extension.slice(1)"
               :class="kindClass(publicData.node)"
-              aria-hidden="true"
+              compact
             /><span class="file-name" :title="publicData.node.name"
               ><span class="file-stem">{{
                 fileNameParts(publicData.node).stem
@@ -1356,7 +1352,7 @@ onUnmounted(() => {
       </div>
       <div class="privacy-pill">
         <ShieldHouse aria-hidden="true" :size="16" />{{
-          t("cloudflareSecurity")
+          t("privateStorage")
         }}
       </div>
     </section>
@@ -1741,18 +1737,11 @@ onUnmounted(() => {
               >
                 <div class="file-symbol">
                   <FileArtwork
-                    v-if="grid"
+                    :compact="!grid"
                     :kind="fileKind(n)"
                     :extension="
                       fileNameParts(n).extension.slice(1).toLowerCase()
                     "
-                  />
-                  <component
-                    v-else
-                    aria-hidden="true"
-                    :is="icon(n)"
-                    :size="24"
-                    :stroke-width="2"
                   />
                   <MediaThumbnail
                     v-if="grid && ['image', 'video'].includes(fileKind(n))"
@@ -1892,11 +1881,11 @@ onUnmounted(() => {
             }}</RouterLink>
           </div>
           <article v-for="n in trashRows" :key="n.id" class="data-row">
-            <component
-              aria-hidden="true"
-              :is="icon(n)"
-              :size="24"
+            <FileArtwork
+              :kind="fileKind(n)"
+              :extension="fileNameParts(n).extension.slice(1)"
               :class="kindClass(n)"
+              compact
             />
             <div class="grow">
               <strong>{{ n.name }}</strong><small
@@ -1971,20 +1960,29 @@ onUnmounted(() => {
             <div class="about-brand">
               <img src="/Logo.png" alt="" />
               <div>
-                <span class="eyebrow">{{ t("productBrand") }}</span>
-                <h3>{{ t("productTagline") }}</h3>
+                <h3>{{ t("productBrand") }}</h3>
+                <span class="muted">v{{ appVersion }}</span>
               </div>
             </div>
-            <details>
-              <summary>{{ t("productLead") }}</summary>
-              <div class="brand-story">
-                <p>{{ t("productIntro") }}</p>
-                <p>{{ t("productCare") }}</p>
-                <p>{{ t("productEase") }}</p>
-                <p>{{ t("productSpace") }}</p>
-                <p>{{ t("productClosing") }}</p>
-              </div>
-            </details>
+            <div class="brand-story">
+              <p>{{ t("productIntro") }}</p>
+              <p>{{ t("productEase") }}</p>
+              <h4>{{ t("productFeatures") }}</h4>
+              <ul>
+                <li
+                  v-for="feature in [
+                    'productOwnership',
+                    'productDocker',
+                    'productStorage',
+                    'productFiles',
+                    'productAccess',
+                  ]"
+                  :key="feature"
+                >
+                  {{ t(feature) }}
+                </li>
+              </ul>
+            </div>
           </section>
           <section class="panel full">
             <div class="panel-heading">
@@ -2463,11 +2461,10 @@ onUnmounted(() => {
           :aria-busy="previewBusy"
         >
           <div v-if="previewError" class="unsupported-preview" role="status">
-            <component
-              :is="icon(preview)"
-              :size="56"
+            <FileArtwork
+              :kind="fileKind(preview)"
+              :extension="fileNameParts(preview).extension.slice(1)"
               :class="kindClass(preview)"
-              aria-hidden="true"
             />
             <p>{{ previewError }}</p>
           </div>

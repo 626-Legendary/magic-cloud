@@ -82,3 +82,27 @@ node tests/design-browser.mjs
 ## 服务器验收
 
 使用 [验收清单](acceptance.md) 检查实际存储断开/恢复、重启、异常中断、大文件和数据库恢复。测试存储不能承载系统或重要数据。公网代理行为与局域网直连分别验证。
+
+## v1.0.1 验证记录（2026-11-18）
+
+本次使用 Raspberry Pi 5 Model B、Debian 13、ARM64、Linux 6.18。所有写入回归使用独立容器、15080/15081 测试端口和 `.scratch-smoke/v1.0.1/` 下可丢弃数据，未使用正式文件。
+
+| 检查 | 结果 |
+| --- | --- |
+| `deploy/scripts/check.sh` | 通过；含以下格式、测试、静态检查、Compose 和 ARM64 镜像构建 |
+| Python 部署/存储检查 | 16 项通过；含本地模式无需 UUID/挂载点、身份缺失拒绝、恢复锁止会停止 Docker 重启循环、fstab 冲突与幂等 |
+| Rust | `cargo fmt --check`、`cargo check --locked`、37 项测试、`cargo clippy --locked --all-targets -- -D warnings` 通过 |
+| 前端 | Vue/TypeScript 生产构建、15 项 Vitest 测试通过；npm audit 0 漏洞；项目未配置 ESLint |
+| Compose | 示例配置在默认和 `--profile tunnel` 下解析通过；局域网部署无需公网 Origin/Token |
+| ARM64 | 生产 Dockerfile 构建通过，并在上述 Pi 5 上实际启动；UID/GID 为 10001，健康检查通过 |
+| AMD64 | 已执行 `docker build --platform linux/amd64`，因本机未配置跨架构执行环境而报 `exec /bin/sh: exec format error`；未完成镜像构建或 AMD64 运行验证 |
+| 构建输入 | 完整构建上下文约 2.75 MB；排除宿主机数据、环境文件、node_modules、target、dist；Rust 编译缓存按架构隔离 |
+| 浏览器 | 现有 7 个脚本均通过：browser、design-browser、visitor-details-browser、loading-drag-browser、lan-browser、thumbnail-transparency、thumbnail-lifecycle |
+
+浏览器覆盖真实 Worker/分片上传、下载内容、文本转义、公开分享、语言/主题、导航/键盘焦点、搜索控件、回收站和缩略图。新增断言覆盖 EXE/7Z/ZIP/RAR/JSON/JS/TS/PY 等统一角标，网格、列表、详情、回收站和分享复用组件；未知类型使用 FILE。关于页面中英文及 v1.0.1 显示正确，320px 设置页无横向溢出，列表行高仍为 48px。透明 PNG 的 Alpha 和颜色校验，以及视频封面后台生成、缓存复用、失败降级和删除清理均通过。
+
+运行层面分别验证 `local` 和 `external`：第一片上传后强制重建容器，原任务与分片保留并能续传；完整下载 SHA-256 一致；文件夹分享、数据库在线备份 `integrity_check=ok`、重启后文件/会话持久化、回收与恢复均通过。篡改测试存储 ID 后 watchdog 退出码为 74，错误身份启动退出码为 1；恢复原标记并重建后文件内容保持一致。不挂载数据目录时，本地模式以 `mountpoint_required` 拒绝启动。
+
+本地模式安装器另在一次性 Linux 容器内执行，Docker/systemctl 使用记录命令的替身，验证其保留本地路径和 fstab、生成正确的绝对 ExecStart 并启用 timer。此项不等于已在宿主机安装系统服务。
+
+尚未验证：物理 U 盘拔插/EIO、整机重启/断电恢复、真实 Raspberry Pi OS（本机为 Debian 13）、AMD64 主机、10 GB 全尺寸传输、真实 Cloudflare 域名及账户限制。本次 external 运行测试使用独立 ext4 目录绑定与标记异常，不能替代物理掉盘验收。宿主机 fstab/systemd 安装需要管理员密码，仍需在目标服务器执行安装器并安排重启/拔插验收。

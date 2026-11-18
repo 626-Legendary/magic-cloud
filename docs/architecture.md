@@ -1,11 +1,13 @@
 # 架构与数据模型
 
-浏览器 → Cloudflare HTTPS/Tunnel → Axum（同源 Vue 静态文件与 `/api`）→ USB ext4。两个容器使用 Compose 自动创建的默认网络；应用端口通过 LAN_BIND_ADDRESS 绑定到指定宿主机地址，同时保留 Cloudflare HTTPS 入口。后端单实例，SQLite 写入与文件元数据变更通过阻塞工作线程上的互斥核心串行执行；分片网络接收和下载在 Tokio 中流式处理。
+浏览器 → LAN HTTP 或可选 Cloudflare HTTPS/Tunnel → Axum（同源 Vue 静态文件与 `/api`）→ 持久化数据目录。应用和可选隧道使用 Compose 默认网络；应用端口通过 LAN_BIND_ADDRESS 绑定到指定宿主机地址，同时保留 Cloudflare HTTPS 入口。后端单实例，SQLite 写入与文件元数据变更通过阻塞工作线程上的互斥核心串行执行；分片网络接收和下载在 Tokio 中流式处理。
 
 ## 存储
 
+`STORAGE_MODE=external` 使用 UUID 校验的 ext4 专用挂载；`local` 使用内部磁盘上的专用持久化目录，不要求 USB、UUID 或独立 ext4 挂载点。未配置模式时保留外置模式。生产环境两种模式都必须把宿主机目录绑定到 `/data`，并预先显式初始化布局与存储 ID；后端启动不自动创建存储布局。
+
 ```text
-USB mount/
+storage/
 ├── files/                     原始文件夹、原始文件名
 └── .magic-cloud/
     ├── storage-id             明确初始化时生成的磁盘标记

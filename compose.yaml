@@ -6,23 +6,24 @@ services:
       dockerfile: Dockerfile
       args:
         CARGO_BUILD_JOBS: 2
-        APP_VERSION: ${APP_VERSION:-1.0.0}
+        APP_VERSION: ${APP_VERSION:-1.0.1}
     image: magic-cloud:local
     container_name: magic-cloud
     labels:
       description: "麦吉云"
     user: "${APP_UID:-10001}:${APP_GID:-10001}"
     init: true
-    restart: "no"
+    restart: unless-stopped
     ports:
       - "${LAN_BIND_ADDRESS:-127.0.0.1}:${PORT:-5080}:${PORT:-5080}"
     environment:
       APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
-      APP_ORIGIN: ${APP_ORIGIN:?Set HTTPS origin}
+      APP_ORIGIN: ${APP_ORIGIN:-}
       LAN_ORIGIN: ${LAN_ORIGIN:-}
       STORAGE_ID: ${STORAGE_ID:?Initialize storage first}
       STORAGE_ROOT: /data
+      STORAGE_MODE: ${STORAGE_MODE:-external}
       TRUSTED_PROXY_HOST: cloudflared
       PORT: ${PORT:-5080}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
@@ -42,6 +43,7 @@ services:
       retries: 2
       start_period: 30s
   cloudflared:
+    profiles: [tunnel]
     image: cloudflare/cloudflared:latest
     container_name: magic-cloud-cloudflared-tunnel
     labels:
@@ -52,5 +54,5 @@ services:
       - --no-autoupdate
       - run
       - --token
-      - ${CLOUDFLARE_TUNNEL_TOKEN:?Set the full Tunnel Token in .env (not Tunnel ID)}
+      - ${CLOUDFLARE_TUNNEL_TOKEN:-}
     restart: unless-stopped

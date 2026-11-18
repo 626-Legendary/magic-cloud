@@ -99,7 +99,7 @@ assert.equal(
 );
 assert.deepEqual(errors, []);
 console.log(
-  "PASS: HTTPS login, directory creation, real Worker/chunk upload, escaped preview, public share, theme/language, responsive layout; no browser errors",
+  "PASS: login, directory creation, real Worker/chunk upload, escaped preview, public share, theme/language, responsive layout; no browser errors",
 );
 await context.close();
 await browser.close();
