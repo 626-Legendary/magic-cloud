@@ -2,6 +2,7 @@ import { ref } from "vue";
 export const locale = ref(localStorage.getItem("mc-locale") || "zh");
 export const theme = ref(localStorage.getItem("mc-theme") || "system");
 const en: Record<string, string> = {
+  loadingCloud: "Opening your cloud…",
   shareExpiry: "Share expiry",
   currentExpiry: "Current expiry",
   expiryPermanentHint: "This link stays active until you revoke the share.",
@@ -273,6 +274,7 @@ const en: Record<string, string> = {
   chunks_in_flight: "Upload is still stopping. Please retry shortly.",
 };
 const zh: Record<string, string> = {
+  loadingCloud: "正在打开你的云端…",
   shareExpiry: "分享有效期",
   currentExpiry: "当前有效期",
   expiryPermanentHint: "链接将一直有效，直到你撤销分享。",

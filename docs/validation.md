@@ -51,6 +51,8 @@ node tests/design-browser.mjs
 
 `tests/visitor-details-browser.mjs` 检查访客页无文件预览请求、文件名不重复、下载入口、统一不支持预览提示、详情字段、居中上传模态框和英文登录布局。它使用模拟 API 数据，不会修改真实文件；需要 `MC_BROWSER_CDP` 与 `MC_TEST_ORIGIN`。
 
+`tests/loading-drag-browser.mjs` 通过模拟 API 延迟检查加载页尺寸，并回归拖拽取消、移出、嵌套元素、窗口失焦、事件中断及黄色安全图标。只读运行，使用浏览器 CDP 与测试地址。
+
 ## 数据库结构
 
 项目使用 `backend/schema.sql` 这一份当前结构，不维护历史版本迁移链。独立测试存储中检查：

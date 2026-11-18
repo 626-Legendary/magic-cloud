@@ -8,6 +8,7 @@ import MediaThumbnail from "./MediaThumbnail.vue";
 import FileMetadata from "./FileMetadata.vue";
 import FileArtwork from "./FileArtwork.vue";
 import ShieldHouse from "./icons/ShieldHouse";
+import { useFileDropOverlay } from "./use-file-drop-overlay";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -236,12 +237,22 @@ const search = ref(""),
   desc = ref(false),
   grid = ref(localStorage.getItem("mc-grid") !== "false"),
   menu = ref(""),
-  drop = ref(false),
   fileInput = ref<HTMLInputElement>(),
   folderInput = ref<HTMLInputElement>(),
   recoverInput = ref<HTMLInputElement>(),
   recoverTask = ref<Task>();
 const view = computed(() => String(route.name || "files"));
+const {
+  active: drop,
+  dragOver,
+  dragLeave,
+  reset: resetDrop,
+} = useFileDropOverlay(
+  () =>
+    view.value === "files" &&
+    authenticated.value &&
+    !document.querySelector("dialog[open]"),
+);
 const parent = computed(() => String(route.params.id || "root"));
 const nav = [
   { key: "files", icon: Cloud, path: "/files/root" },
@@ -910,7 +921,7 @@ async function uploadFiles(files: File[]) {
   }
 }
 async function dropped(event: DragEvent) {
-  drop.value = false;
+  resetDrop();
   if (view.value !== "files") return;
   const entries = Array.from(event.dataTransfer?.items || [])
     .map((x) => (x as any).webkitGetAsEntry?.())
@@ -1143,15 +1154,21 @@ onUnmounted(() => {
       v{{ appVersion }}
     </footer>
   </main>
-  <div v-else-if="checking" class="boot">
-    <img src="/Logo.png" alt="Magic Cloud" /><span class="spinner"></span>
+  <div v-else-if="checking" class="boot" role="status">
+    <div class="boot-logo">
+      <img src="/Logo.png" :alt="t('brand')" width="160" height="160" />
+    </div>
+    <div class="boot-progress">
+      <span class="spinner" aria-hidden="true"></span
+      ><span>{{ t("loadingCloud") }}</span>
+    </div>
   </div>
   <main v-else-if="view === 'public'" class="public-page">
     <header class="public-header">
       <a href="/"
         ><img src="/Logo.png" alt="" /><b>{{ t("brand") }}</b></a
       ><span
-        ><LockKeyhole aria-hidden="true" :size="16" />{{
+        ><LockKeyhole class="share-lock" aria-hidden="true" :size="16" />{{
           t("secureSharing")
         }}</span
       ><button
@@ -1520,8 +1537,8 @@ onUnmounted(() => {
       </header>
       <div
         class="content"
-        @dragover.prevent="view === 'files' && (drop = true)"
-        @dragleave.self="drop = false"
+        @dragover="dragOver"
+        @dragleave="dragLeave"
         @drop.prevent="dropped"
       >
         <div
