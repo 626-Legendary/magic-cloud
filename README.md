@@ -15,6 +15,20 @@ Keep your files on your own Linux computer, server, or Raspberry Pi. Manage them
 - Download-only share links with expiry and revocation; 30-day trash.
 - SQLite backups, Chinese/English, and light/dark themes.
 
+## Screenshots
+
+### Sign in
+
+![Magic Cloud sign-in page](docs/screenshots/login-en.png)
+
+### File management
+
+![Magic Cloud file library with file type icons and folders](docs/screenshots/files-en.png)
+
+### File sharing
+
+![Magic Cloud download-only file sharing page](docs/screenshots/share-en.png)
+
 ## Requirements
 
 - Linux AMD64 or ARM64, kernel 5.6+ with `openat2`. Raspberry Pi 4/5 requires a **64-bit OS**. See [validation results](docs/validation.md) for tested architectures and limits.

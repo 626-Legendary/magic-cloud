@@ -15,6 +15,20 @@
 - 可设有效期、可撤销的只读下载分享，30 天回收站。
 - SQLite 定时备份、中英文和明暗主题。
 
+## 界面预览
+
+### 登录页面
+
+![麦吉云登录页面](docs/screenshots/login-zh-CN.png)
+
+### 文件管理
+
+![麦吉云文件管理界面，展示文件类型图标和文件夹](docs/screenshots/files-zh-CN.png)
+
+### 文件分享
+
+![麦吉云只读文件分享与下载页面](docs/screenshots/share-zh-CN.png)
+
 ## 系统要求
 
 - Linux AMD64 或 ARM64，内核 5.6+，支持 `openat2`。树莓派 4/5 需安装 **64 位系统**；实际架构验证范围见[验证记录](docs/validation.md)。
