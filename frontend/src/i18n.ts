@@ -109,13 +109,13 @@ const en: Record<string, string> = {
   productTagline: "A little penguin, guarding your digital nest.",
   productLead: "Magi keeps an eye on every file.",
   productIntro:
-    "Magic Cloud is a lightweight, simple, and easy-to-use private cloud file manager. Create your own digital nest on a server you control.",
+    "Magi is a little penguin who loves keeping things in order, looking after a digital nest that belongs to you.",
   productCare:
-    "Photos, documents, and work files are in good company with Magi. Everything has its place, and precious memories stay close. Whenever you return, the door is open.",
+    "The photos you take, the document you’re still working on, the files from a busy day — there’s a place for all of them here. Some you’ll open every day. Others hold memories you’ll only revisit now and then. Magi keeps them close until you need them.",
   productEase:
-    "No complicated routines. Magi has the everyday details covered.",
+    "That nest is Magic Cloud, a lightweight, easy-to-use private cloud file manager. It runs on your own server and makes uploading, organizing, and sharing a simple part of your day.",
   productClosing:
-    "Head out and do your thing. Magi stays home, looking after every precious digital memory.",
+    "Go about your day. Magi will be here when you return, with your familiar files and precious memories right where you left them.",
   about: "About Magic Cloud",
   trashEmpty: "All clean. Nothing here.",
   searchEmpty: "No matching files. Try a different keyword.",
@@ -250,7 +250,8 @@ const en: Record<string, string> = {
   menu: "Open navigation",
   welcome: "What would you like to organize today?",
   stored: "stored",
-  privacy: "Your data. Your space. Your rules.",
+  productSpace:
+    "You control your data and shape your space. Add things at your own pace, arrange them your way, and make this little nest your own.",
   active: "Active",
   clearDone: "Clear finished",
   refresh: "Refresh",
@@ -375,13 +376,13 @@ const zh: Record<string, string> = {
   productBrand: "Magic Cloud 麦吉云",
   productTagline: "小企鹅守着，你的数字小窝。",
   productLead: "每一份文件，都有麦吉看着家。",
-  productIntro:
-    "麦吉云（Magic Cloud）是一款轻量、简洁、易用的私有云文件管理平台，帮你把专属的云端小窝搭在自己的设备上。",
+  productIntro: "麦吉是一只喜欢整理的小企鹅，守着一个属于你的云端小窝。",
   productCare:
-    "照片、文档、工作资料，交给麦吉就好：它会把文件摆得整整齐齐，把珍贵的回忆好好收着。你随时回来，它随时开门。",
-  productEase: "不用复杂设置，麦吉已经替你打理妥当。",
+    "拍下的照片、写到一半的文档、忙碌一天留下的工作资料，都可以带回这里。有些文件每天都要打开，有些回忆很久才会翻看一次，麦吉都替你好好收着。",
+  productEase:
+    "这个小窝叫麦吉云（Magic Cloud），是一款轻量、简洁、易用的私有云文件管理平台。它住在你自己的设备上，让上传、整理和分享，成为日常里轻松的小事。",
   productClosing:
-    "你出门忙你的，麦吉在家守着——每一份珍贵的数字记忆，它都看得牢牢的。",
+    "你出门忙你的，麦吉留在家里。等你回来，熟悉的文件和珍贵的回忆，都还在。",
   about: "关于麦吉云",
   trashEmpty: "干干净净，什么都没有。",
   searchEmpty: "没找到相关文件，试试其他关键词吧。",
@@ -511,7 +512,8 @@ const zh: Record<string, string> = {
   menu: "打开导航",
   welcome: "今天想整理些什么呢？",
   stored: "已存储",
-  privacy: "数据由你掌控，空间由你定义。",
+  productSpace:
+    "数据由你掌控，空间由你定义。你可以慢慢添置、随手整理，把这里布置成自己喜欢的样子。",
   active: "进行中",
   clearDone: "清除已结束任务",
   refresh: "刷新",

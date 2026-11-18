@@ -1981,7 +1981,7 @@ onUnmounted(() => {
                 <p>{{ t("productIntro") }}</p>
                 <p>{{ t("productCare") }}</p>
                 <p>{{ t("productEase") }}</p>
-                <p>{{ t("privacy") }}</p>
+                <p>{{ t("productSpace") }}</p>
                 <p>{{ t("productClosing") }}</p>
               </div>
             </details>
