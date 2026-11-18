@@ -61,7 +61,7 @@ await page
   .getByRole("button", { name: "关闭", exact: true })
   .click();
 await row.locator(".file-actions > button").click();
-await row.getByRole("button", { name: "分享", exact: true }).click();
+await row.getByRole("menuitem", { name: "分享", exact: true }).click();
 await page
   .locator("dialog[open]")
   .getByRole("button", { name: "确认", exact: true })
@@ -74,7 +74,7 @@ await page.keyboard.press("Escape");
 const publicContext = await browser.newContext({ ignoreHTTPSErrors: true });
 const publicPage = await publicContext.newPage();
 await publicPage.goto(shareUrl);
-await publicPage.locator(".public-single").waitFor();
+await publicPage.locator(".public-download-card").waitFor();
 assert.equal(await publicPage.locator(".sidebar").count(), 0);
 assert.equal(await publicPage.locator("video").count(), 0);
 await publicContext.close();

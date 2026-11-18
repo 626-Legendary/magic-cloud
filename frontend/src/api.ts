@@ -6,6 +6,7 @@ export interface Node {
   kind: "file" | "folder";
   size: number;
   mtime: number;
+  uploaded_at?: number | null;
   deleted?: boolean;
 }
 export interface Upload {

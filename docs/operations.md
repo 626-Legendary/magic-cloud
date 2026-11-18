@@ -5,7 +5,7 @@
 | 状态 | 行为 |
 |---|---|
 | 首次安装、无布局 | 显式 `init --initialize-empty`；其他路径不自动初始化 |
-| Pi 重启、USB 正常 | fstab 或脚本按 UUID 挂载，systemd 校验后创建应用容器 |
+| 服务器 重启、USB 正常 | fstab 或脚本按 UUID 挂载，systemd 校验后创建应用容器 |
 | USB 不在、挂载路径为空目录 | 不通过检查，不初始化数据库；后端停止 |
 | UUID/ext4/storage-id 错误 | 不启动，不接管、不格式化错误磁盘 |
 | 运行中掉盘/EIO | 后端拒绝新操作并退出；宿主机停止旧容器 |
@@ -51,7 +51,7 @@ sudo systemctl stop magic-cloud-storage.timer
 
 设置页也可删除指定备份，操作前需确认永久删除风险；只删除选中的备份文件，不修改当前数据库或原始文件。
 
-新备份名为 `magic-cloud-YYYY-MM-DD_HH-MM-SSZ-<UUID>.db`，例如 `magic-cloud-2026-11-17_12-34-56Z-<UUID>.db`。时间使用 UTC（Z），UUID 避免同一秒创建时重名。列表及自动清理按备份时间排序，兼容原来的 Unix 秒时间戳文件名；其他普通 `.db` 文件以修改时间作为回退。旧备份保留原名并继续支持下载，目录和符号链接不参与备份列表或清理。
+新备份名为 `magic-cloud-YYYY-MM-DD_HH-MM-SSZ-<UUID>.db`，例如 `magic-cloud-2026-11-17_12-34-56Z-<UUID>.db`。时间使用 UTC（Z），UUID 避免同一秒创建时重名。列表及自动清理按文件名中的 UTC 时间排序；其他 `.db` 快照按修改时间排序。目录和符号链接不参与列表或清理。
 
 恢复必须由管理员明确操作：
 
@@ -70,7 +70,7 @@ sudo systemctl stop magic-cloud-storage.timer
 3. `docker compose build magic-cloud`，运行磁盘检查，再 `docker compose up -d --no-deps --force-recreate magic-cloud`。
 4. 检查健康、登录、列表和小文件上传下载后启动 timer。不要同时运行两个应用实例。
 
-回滚先停止应用与 timer，使用前一镜像。若新版本执行过不兼容迁移，必须按备份恢复流程恢复匹配数据库与文件状态，不能盲目运行旧镜像。当前版本拒绝更高数据库版本。
+回滚先停止应用与 timer，使用前一镜像。数据库使用一份当前结构定义，不维护跨版本迁移。结构有变动时，应恢复匹配的数据库与文件备份，不能直接切换镜像并混用数据。
 
 修改密码或 SESSION_SECRET 后运行 `docker compose up -d --no-deps --force-recreate magic-cloud`；旧会话全部失效。修改 SESSION_SECRET 会影响所有者复制已有加密分享链接，请保留原密钥或重新生成分享。
 
@@ -78,8 +78,8 @@ sudo systemctl stop magic-cloud-storage.timer
 
 ## Cloudflare 与网络
 
-Compose 使用 `cloudflared tunnel --no-autoupdate run --token ...`。`.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 必须是控制台连接器安装命令中 `--token` 后的完整令牌，不能只填 Tunnel ID（UUID）。原来的 TUNNEL_TOKEN 环境变量写法同样受官方支持；此处按项目使用习惯统一为命令参数。
+Compose 使用 `cloudflared tunnel --no-autoupdate run --token ...`。`.env` 的 `CLOUDFLARE_TUNNEL_TOKEN` 必须是控制台连接器安装命令中 `--token` 后的完整令牌，不能只填 Tunnel ID（UUID）。令牌按 Compose 配置传入连接器。
 
-在 Tunnel 控制台把 HTTPS 域名指向 `http://magic-cloud:5080`，与 APP_ORIGIN 一致。Docker 自动分配网络地址；后端通过 `TRUSTED_PROXY_HOST=cloudflared` 解析隧道容器地址，仅在 TCP 对端匹配时采信客户端 IP 头。公网使用 HTTPS 域名；配置 `LAN_BIND_ADDRESS` 和 `LAN_ORIGIN` 后，内网可通过树莓派 IP:5080 直接访问，断网时该入口仍可使用。
+在 Tunnel 控制台把 HTTPS 域名指向 `http://magic-cloud:5080`，与 APP_ORIGIN 一致。Docker 自动分配网络地址；后端通过 `TRUSTED_PROXY_HOST=cloudflared` 解析隧道容器地址，仅在 TCP 对端匹配时采信客户端 IP 头。公网使用 HTTPS 域名；配置 `LAN_BIND_ADDRESS` 和 `LAN_ORIGIN` 后，内网可通过服务器 IP:5080 直接访问，断网时该入口仍可使用。
 
 502/503 可能意味着磁盘或后端不可用，不代表密码错误。16 MiB 上传分片仍可能受具体账户/WAF/网络策略限制。公网 10 GB 下载、公开大文件及视频分发必须核实当前 Cloudflare 条款和实测，不能仅凭后端支持 Range 作保证。

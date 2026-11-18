@@ -2,7 +2,10 @@
 import { copyText } from "./browser";
 import heroImage from "./assets/Hero.png";
 import { fileKind, fileNameParts } from "./file-kind";
+import { fileIcons } from "./file-icons";
+import { shareExpiryOptions, shareExpiryTimestamp } from "./share-expiry";
 import MediaThumbnail from "./MediaThumbnail.vue";
+import FileMetadata from "./FileMetadata.vue";
 import FileArtwork from "./FileArtwork.vue";
 import ShieldHouse from "./icons/ShieldHouse";
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
@@ -12,9 +15,6 @@ import {
   Folder,
   File,
   FileText,
-  Image,
-  Music,
-  Film,
   Search,
   Upload as UploadIcon,
   FolderPlus,
@@ -50,7 +50,6 @@ import {
   Copy,
   ExternalLink,
   RefreshCw,
-  FileSpreadsheet,
   Info,
   TriangleAlert,
   FolderLock,
@@ -103,7 +102,6 @@ const batchBusy = ref(false),
 const compactQuery = matchMedia("(max-width: 767px)");
 const compactLayout = ref(compactQuery.matches);
 const sidebarElement = ref<HTMLElement>();
-const navigationButton = ref<HTMLButtonElement>();
 const searchInput = ref<HTMLInputElement>();
 const selectedIds = ref(new Set<string>());
 const allSelected = computed(
@@ -463,17 +461,7 @@ async function refreshStorage() {
   }
 }
 function icon(n: Node) {
-  return {
-    folder: Folder,
-    image: Image,
-    video: Film,
-    audio: Music,
-    pdf: FileText,
-    word: FileText,
-    excel: FileSpreadsheet,
-    document: FileText,
-    unknown: File,
-  }[fileKind(n)];
+  return fileIcons[fileKind(n)];
 }
 function kindClass(n: Node) {
   return fileKind(n);
@@ -693,21 +681,35 @@ async function emptyTrash() {
 }
 const shareLink = ref(""),
   shareDialog = ref<HTMLDialogElement>();
-async function days(): Promise<number | null | undefined> {
-  const value = await ask(t("expires"), { input: "", hint: t("expiryPrompt") });
-  if (value === null) return undefined;
-  if (value === "") return null;
-  const num = Number(value);
-  if (!Number.isFinite(num) || num <= 0) {
-    throw new Error("invalid_expiry");
-  }
-  return Math.floor(Date.now() / 1000 + num * 86400);
+const expiryDialog = ref<HTMLDialogElement>();
+const expiryDuration = ref<number | null>(604800);
+const expiryOriginal = ref<number | null | undefined>();
+let resolveExpiry: ((value: number | null | undefined) => void) | undefined;
+async function chooseExpiry(
+  current?: number | null,
+  trigger = dialogTrigger(),
+): Promise<number | null | undefined> {
+  expiryOriginal.value = current;
+  expiryDuration.value = current === null ? null : 604800;
+  await nextTick();
+  openDialog(expiryDialog.value, trigger);
+  return new Promise((resolve) => {
+    resolveExpiry = resolve;
+  });
+}
+function answerExpiry(confirm: boolean) {
+  const value = confirm
+    ? shareExpiryTimestamp(expiryDuration.value)
+    : undefined;
+  expiryDialog.value?.close();
+  resolveExpiry?.(value);
+  resolveExpiry = undefined;
 }
 async function shareNode(n: Node) {
   const trigger = dialogTrigger();
   menu.value = "";
   try {
-    const expires = await days();
+    const expires = await chooseExpiry(undefined, trigger);
     if (expires === undefined) return;
     const data = await api("/shares", "POST", { root: n.id, expires });
     shareLink.value = location.origin + data.url;
@@ -718,7 +720,7 @@ async function shareNode(n: Node) {
 }
 async function editExpiry(s: any) {
   try {
-    const expires = await days();
+    const expires = await chooseExpiry(s.expires);
     if (expires === undefined) return;
     await api("/shares/" + s.id, "PATCH", { expires });
     await load();
@@ -727,7 +729,13 @@ async function editExpiry(s: any) {
   }
 }
 async function revoke(s: any) {
-  if (!(await ask(t("revoke"), { hint: s.name }))) return;
+  if (
+    !(await ask(t("revokeShare"), {
+      hint: `${s.name || t("sharedFile")}\n${t("revokeShareHint")}`,
+      choices: [{ label: t("revokeShare"), value: "yes", danger: true }],
+    }))
+  )
+    return;
   try {
     await api("/shares/" + s.id, "DELETE");
     await load();
@@ -794,8 +802,12 @@ async function deleteBackup(name: string) {
 const preview = ref<Node>(),
   previewDialog = ref<HTMLDialogElement>(),
   previewText = ref(""),
-  previewError = ref("");
-const mediaType = computed(() => (preview.value ? icon(preview.value) : null));
+  previewError = ref(""),
+  previewBusy = ref(false);
+let previewRequest: AbortController | undefined;
+const mediaType = computed(() =>
+  preview.value ? fileKind(preview.value) : null,
+);
 const previewUrl = computed(() =>
   preview.value ? `/api/nodes/${preview.value.id}/download?inline=true` : "",
 );
@@ -807,23 +819,47 @@ async function openNode(n: Node) {
     router.push("/files/" + n.id);
     return;
   }
+  previewRequest?.abort();
+  const request = new AbortController();
+  previewRequest = request;
   preview.value = n;
   previewText.value = "";
   previewError.value = "";
-  openDialog(previewDialog.value, trigger);
-  if (
-    ![Image, Film, Music].includes(icon(n)) &&
-    !n.name.toLowerCase().endsWith(".pdf")
-  ) {
-    try {
-      previewText.value = (await api(`/nodes/${n.id}/text`)).text;
-    } catch (e) {
-      previewError.value = t(e instanceof ApiError ? e.code : "noPreview");
-    }
+  previewBusy.value = false;
+  if (!previewDialog.value?.open) openDialog(previewDialog.value, trigger);
+  const kind = fileKind(n);
+  if (["image", "video", "audio"].includes(kind)) return;
+  if (kind !== "document") {
+    previewError.value = t("noPreview");
+    return;
+  }
+  previewBusy.value = true;
+  try {
+    const result = await api<{ text: string }>(
+      `/nodes/${n.id}/text`,
+      "GET",
+      undefined,
+      request.signal,
+    );
+    if (!request.signal.aborted && preview.value?.id === n.id)
+      previewText.value = result.text;
+  } catch (e) {
+    if (!request.signal.aborted && preview.value?.id === n.id)
+      previewError.value = t(
+        e instanceof ApiError && e.code === "network_error"
+          ? "network_error"
+          : "noPreview",
+      );
+  } finally {
+    if (!request.signal.aborted && preview.value?.id === n.id)
+      previewBusy.value = false;
   }
 }
 function closePreview() {
+  previewRequest?.abort();
+  previewRequest = undefined;
   preview.value = undefined;
+  previewBusy.value = false;
   previewDialog.value?.close();
 }
 function download(n: Node) {
@@ -1006,6 +1042,8 @@ watch(
   () => route.fullPath,
   () => {
     uploadDialog.value?.close();
+    answerExpiry(false);
+    closePreview();
     selectedIds.value = new Set();
     search.value = "";
     void load();
@@ -1042,6 +1080,7 @@ onMounted(async () => {
   }
 });
 onUnmounted(() => {
+  previewRequest?.abort();
   systemTheme.removeEventListener("change", applyPreferences);
   window.removeEventListener("mc-files-changed", changed);
   compactQuery.removeEventListener("change", compactChanged);
@@ -1112,8 +1151,11 @@ onUnmounted(() => {
       <a href="/"
         ><img src="/Logo.png" alt="" /><b>{{ t("brand") }}</b></a
       ><span
-        ><ShieldCheck aria-hidden="true" :size="16" />{{ t("readOnly") }}</span
+        ><LockKeyhole aria-hidden="true" :size="16" />{{
+          t("secureSharing")
+        }}</span
       ><button
+        class="icon-button"
         :aria-label="t('language')"
         :title="t('language')"
         @click="locale = locale === 'zh' ? 'en' : 'zh'"
@@ -1161,16 +1203,19 @@ onUnmounted(() => {
         <RouterLink class="button primary" to="/">{{ t("goHome") }}</RouterLink>
       </div>
     </section>
-    <section v-if="publicData" class="public-card">
-      <span class="eyebrow">{{ t("readOnly") }}</span>
-      <h1>{{ publicData.root.name || t("brand") }}</h1>
-      <div class="toolbar">
-        <button v-if="route.query.node" @click="router.push(route.path)">
-          <ArrowLeft aria-hidden="true" :size="16" />{{ t("back") }}</button
-        ><span>{{ publicData.node.name }}</span>
-      </div>
-      <template v-if="publicData.node.kind === 'folder'"
-        ><button
+    <section
+      v-if="publicData"
+      class="public-card"
+      :class="{ 'public-download-card': publicData.node.kind !== 'folder' }"
+    >
+      <template v-if="publicData.node.kind === 'folder'">
+        <div class="public-folder-heading">
+          <h1>{{ publicData.node.name || t("sharedFolder") }}</h1>
+          <button v-if="route.query.node" @click="router.push(route.path)">
+            <ArrowLeft aria-hidden="true" :size="16" />{{ t("shareHome") }}
+          </button>
+        </div>
+        <button
           v-for="n in publicData.nodes"
           :key="n.id"
           class="public-file"
@@ -1181,9 +1226,15 @@ onUnmounted(() => {
             :is="icon(n)"
             :class="kindClass(n)"
             :size="24"
-          /><strong>{{ n.name }}</strong
-          ><small>{{ n.kind === "folder" ? t("folder") : bytes(n.size) }}</small
-          ><component
+          />
+          <span class="file-name"
+            ><span class="file-stem">{{ fileNameParts(n).stem }}</span
+            ><span class="file-extension">{{
+              fileNameParts(n).extension
+            }}</span></span
+          >
+          <small>{{ n.kind === "folder" ? t("folder") : bytes(n.size) }}</small>
+          <component
             aria-hidden="true"
             :is="n.kind === 'folder' ? ChevronRight : ArrowDownToLine"
             :size="20"
@@ -1191,23 +1242,57 @@ onUnmounted(() => {
         </button>
         <p v-if="!publicData.nodes.length" class="muted">
           {{ t("emptyList") }}
-        </p></template
-      >
-      <div v-else class="public-single">
-        <component
-          aria-hidden="true"
-          :is="icon(publicData.node)"
-          :size="70"
-          :class="kindClass(publicData.node)"
-        />
-        <h2>{{ publicData.node.name }}</h2>
-        <p class="muted">
-          {{ bytes(publicData.node.size) }} · {{ date(publicData.node.mtime) }}
         </p>
-        <button class="primary" @click="publicOpen(publicData.node)">
-          <ArrowDownToLine aria-hidden="true" :size="20" />{{ t("download") }}
-        </button>
-      </div>
+      </template>
+      <template v-else>
+        <div class="shared-file-heading">
+          <span class="share-kind-label">{{ t("sharedFile") }}</span>
+          <h1 class="shared-file-name" :title="publicData.node.name">
+            <span>{{ fileNameParts(publicData.node).stem }}</span><small>{{
+              fileNameParts(publicData.node).extension
+            }}</small>
+          </h1>
+          <button v-if="route.query.node" @click="router.push(route.path)">
+            <ArrowLeft aria-hidden="true" :size="16" />{{ t("shareHome") }}
+          </button>
+        </div>
+        <div class="shared-file-summary">
+          <div
+            class="shared-file-artwork"
+            :class="kindClass(publicData.node)"
+            aria-hidden="true"
+          >
+            <component
+              :is="icon(publicData.node)"
+              :size="64"
+              :stroke-width="2"
+            />
+          </div>
+          <FileMetadata :node="publicData.node" />
+        </div>
+        <div class="shared-download-area">
+          <div class="shared-download-file">
+            <component
+              :is="icon(publicData.node)"
+              :size="24"
+              :class="kindClass(publicData.node)"
+              aria-hidden="true"
+            /><span class="file-name" :title="publicData.node.name"
+              ><span class="file-stem">{{
+                fileNameParts(publicData.node).stem
+              }}</span
+              ><span class="file-extension">{{
+                fileNameParts(publicData.node).extension
+              }}</span></span
+            >
+          </div>
+          <button class="primary" @click="publicOpen(publicData.node)">
+            <ArrowDownToLine aria-hidden="true" :size="20" />{{
+              t("downloadFile")
+            }}
+          </button>
+        </div>
+      </template>
     </section>
     <div v-else-if="loading" class="empty"><span class="spinner"></span></div>
   </main>
@@ -1401,7 +1486,6 @@ onUnmounted(() => {
       <header class="topbar">
         <button
           class="mobile-only icon-button"
-          ref="navigationButton"
           :aria-label="t('menu')"
           aria-controls="navigation-drawer"
           :aria-expanded="sidebar"
@@ -1478,7 +1562,7 @@ onUnmounted(() => {
             <button
               v-if="view === 'files'"
               :aria-label="t('newFolder')"
-              class="new-folder-button primary"
+              class="new-folder-button secondary"
               @click="makeFolder"
             >
               <FolderPlus aria-hidden="true" :size="20" /><span>{{
@@ -1654,10 +1738,10 @@ onUnmounted(() => {
                     :stroke-width="2"
                   />
                   <MediaThumbnail
-                    v-if="grid && [Image, Film].includes(icon(n))"
+                    v-if="grid && ['image', 'video'].includes(fileKind(n))"
                     :id="n.id"
                     :name="n.name"
-                    :video="icon(n) === Film"
+                    :video="fileKind(n) === 'video'"
                   />
                 </div>
                 <span class="file-name" :title="n.name"
@@ -2107,16 +2191,16 @@ onUnmounted(() => {
   <dialog
     id="upload-actions-dialog"
     ref="uploadDialog"
-    class="dialog upload-drawer"
-    aria-labelledby="upload-drawer-title"
-    aria-describedby="upload-drawer-description"
+    class="dialog upload-choice-dialog"
+    aria-labelledby="upload-choice-title"
+    aria-describedby="upload-choice-description"
     @close="
       uploadMenuOpen = false;
       restoreDialogFocus($event);
     "
   >
     <div class="dialog-heading">
-      <h2 id="upload-drawer-title">{{ t("chooseUpload") }}</h2>
+      <h2 id="upload-choice-title">{{ t("chooseUpload") }}</h2>
       <button
         class="icon-button"
         :aria-label="t('close')"
@@ -2125,7 +2209,7 @@ onUnmounted(() => {
         <X aria-hidden="true" :size="20" />
       </button>
     </div>
-    <p id="upload-drawer-description">{{ t("chooseUploadHint") }}</p>
+    <p id="upload-choice-description">{{ t("chooseUploadHint") }}</p>
     <div class="upload-choices">
       <button
         autofocus
@@ -2215,6 +2299,60 @@ onUnmounted(() => {
     </form>
   </dialog>
   <dialog
+    ref="expiryDialog"
+    class="dialog"
+    aria-labelledby="expiry-title"
+    aria-describedby="expiry-description"
+    @cancel.prevent="answerExpiry(false)"
+    @close="restoreDialogFocus"
+  >
+    <form @submit.prevent="answerExpiry(true)">
+      <div class="dialog-heading">
+        <h2 id="expiry-title">{{ t("shareExpiry") }}</h2>
+        <button
+          type="button"
+          class="icon-button"
+          :aria-label="t('close')"
+          @click="answerExpiry(false)"
+        >
+          <X aria-hidden="true" :size="20" />
+        </button>
+      </div>
+      <p v-if="expiryOriginal !== undefined" class="muted">
+        {{ t("currentExpiry") }}:
+        {{ expiryOriginal === null ? t("permanent") : date(expiryOriginal) }}
+      </p>
+      <p id="expiry-description" class="muted">
+        {{
+          t(expiryDuration === null ? "expiryPermanentHint" : "expiryPrompt")
+        }}
+      </p>
+      <fieldset class="expiry-options">
+        <legend class="sr-only">{{ t("shareExpiry") }}</legend>
+        <label
+          v-for="option in shareExpiryOptions"
+          :key="option.key"
+          class="expiry-option"
+          :class="{ selected: expiryDuration === option.seconds }"
+        >
+          <input
+            v-model="expiryDuration"
+            type="radio"
+            name="share-duration"
+            :value="option.seconds"
+            :autofocus="expiryDuration === option.seconds"
+          /><span>{{ t(option.key) }}</span>
+        </label>
+      </fieldset>
+      <div class="dialog-actions">
+        <button type="button" @click="answerExpiry(false)">
+          {{ t("cancel") }}</button><button type="submit" class="primary">
+          {{ t("confirm") }}
+        </button>
+      </div>
+    </form>
+  </dialog>
+  <dialog
     ref="shareDialog"
     class="dialog"
     aria-labelledby="share-title"
@@ -2286,16 +2424,12 @@ onUnmounted(() => {
     ref="previewDialog"
     class="dialog preview-dialog"
     aria-labelledby="preview-title"
-    aria-describedby="preview-description"
     @close="restoreDialogFocus"
-    @cancel="preview = undefined"
+    @cancel="closePreview"
   >
-    <template v-if="preview"
-      ><div class="dialog-heading">
-        <div>
-          <span class="eyebrow">{{ t("details") }}</span>
-          <h2 id="preview-title">{{ preview.name }}</h2>
-        </div>
+    <template v-if="preview">
+      <div class="dialog-heading">
+        <h2>{{ t("details") }}</h2>
         <button
           class="icon-button"
           :aria-label="t('close')"
@@ -2305,35 +2439,58 @@ onUnmounted(() => {
           <X aria-hidden="true" :size="24" />
         </button>
       </div>
-      <div class="preview-content">
-        <img v-if="mediaType === Image" :src="previewUrl" :alt="preview.name" />
-        <MediaThumbnail
-          v-else-if="mediaType === Film"
-          :id="preview.id"
-          :name="preview.name"
-          video
-          preview
-        />
-        <audio
-          v-else-if="mediaType === Music"
-          :src="previewUrl"
-          controls
-        ></audio
-        ><iframe
-          v-else-if="preview.name.toLowerCase().endsWith('.pdf')"
-          :src="previewUrl"
-          :title="preview.name"
-        ></iframe>
-        <pre v-else-if="previewText">{{ previewText }}</pre>
-        <p v-else class="muted">{{ previewError || t("working") }}</p>
+      <div class="file-detail-layout">
+        <div
+          class="preview-content"
+          :class="{ 'preview-unavailable': !!previewError }"
+          :aria-busy="previewBusy"
+        >
+          <div v-if="previewError" class="unsupported-preview" role="status">
+            <component
+              :is="icon(preview)"
+              :size="56"
+              :class="kindClass(preview)"
+              aria-hidden="true"
+            />
+            <p>{{ previewError }}</p>
+          </div>
+          <span
+            v-else-if="previewBusy"
+            class="spinner"
+            role="status"
+            :aria-label="t('working')"
+          ></span>
+          <img
+            v-else-if="mediaType === 'image'"
+            :src="previewUrl"
+            :alt="preview.name"
+            @error="previewError = t('noPreview')"
+          />
+          <MediaThumbnail
+            v-else-if="mediaType === 'video'"
+            :id="preview.id"
+            :name="preview.name"
+            video
+            preview
+            @unavailable="previewError = t('noPreview')"
+          />
+          <audio
+            v-else-if="mediaType === 'audio'"
+            :src="previewUrl"
+            controls
+            @error="previewError = t('noPreview')"
+          ></audio>
+          <pre v-else>{{ previewText }}</pre>
+        </div>
+        <aside class="file-detail-information">
+          <FileMetadata :node="preview" show-name title-id="preview-title" />
+          <button class="primary" @click="download(preview)">
+            <ArrowDownToLine aria-hidden="true" :size="20" />{{
+              t("downloadFile")
+            }}
+          </button>
+        </aside>
       </div>
-      <div class="preview-footer">
-        <span id="preview-description"
-          >{{ bytes(preview.size) }} · {{ date(preview.mtime) }}</span
-        ><button class="primary" @click="download(preview)">
-          <ArrowDownToLine aria-hidden="true" :size="20" />{{ t("download") }}
-        </button>
-      </div></template
-    >
+    </template>
   </dialog>
 </template>

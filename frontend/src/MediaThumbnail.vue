@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from "vue";
-import { Film } from "lucide-vue-next";
+import { Video } from "lucide-vue-next";
 import { t } from "./i18n";
 const props = defineProps<{
   id: string;
@@ -8,6 +8,7 @@ const props = defineProps<{
   video?: boolean;
   preview?: boolean;
 }>();
+const emit = defineEmits<{ unavailable: [] }>();
 const state = ref<"pending" | "ready" | "failed">("pending");
 const source = ref("");
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -68,6 +69,9 @@ watch(
   },
   { immediate: true },
 );
+watch(state, (value) => {
+  if (props.preview && value === "failed") emit("unavailable");
+});
 onBeforeUnmount(() => {
   generation++;
   cleanup();
@@ -83,7 +87,7 @@ onBeforeUnmount(() => {
         :alt="preview ? name : ''"
         @error="imageFailed"
       />
-      <Film v-else-if="preview" :size="48" aria-hidden="true" />
+      <Video v-else-if="preview" :size="48" aria-hidden="true" />
       <span
         v-if="!preview && video && state !== 'ready'"
         class="thumbnail-status"

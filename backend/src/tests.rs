@@ -167,6 +167,7 @@ fn add_file(c: &mut Core, parent: &str, name: &str, data: &[u8]) -> Node {
         kind: "file".into(),
         size: data.len() as u64,
         mtime: m.mtime(),
+        uploaded_at: Some(now()),
         mtime_ns: m.mtime_nsec(),
         dev: m.dev(),
         ino: m.ino(),
@@ -725,6 +726,16 @@ async fn upload_checksum_errors_concurrency_expiry_and_zero_length() {
         .0,
         StatusCode::OK
     );
+    let uploaded_at: Option<i64> = f
+        .core()
+        .db
+        .query_row(
+            "SELECT uploaded_at FROM nodes WHERE name='empty' AND deleted=0",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(uploaded_at.is_some_and(|time| time > 0 && time <= now()));
 }
 #[test]
 fn password_generation_invalidates_sessions_on_reopen() {
@@ -1446,13 +1457,13 @@ fn backup_names_include_readable_utc_time_and_remain_unique() {
 }
 
 #[test]
-fn mixed_backup_formats_are_sorted_and_pruned_by_time() {
+fn backups_are_sorted_and_pruned_by_time() {
     let f = Fixture::new();
     let c = f.core();
     let directory = f.dir.path().join(".magic-cloud/backups");
-    let oldest = "978307200-legacy.db"; // 2001-01-01 UTC
+    let oldest = "magic-cloud-2001-01-01_00-00-00Z-oldest.db";
     let middle = "magic-cloud-2020-01-01_00-00-00Z-middle.db";
-    let newest = "1893456000-legacy-newer.db"; // 2030-01-01 UTC
+    let newest = "magic-cloud-2030-01-01_00-00-00Z-newest.db";
     for name in [middle, newest, oldest] {
         fs::write(directory.join(name), b"fixture").unwrap();
     }
@@ -1538,12 +1549,7 @@ async fn thumbnail_pending_cache_and_trash_cleanup() {
     );
     let key = thumbnails::key(&node);
     let directory = f.dir.path().join(".magic-cloud/thumbnails");
-    fs::write(directory.join(format!("{key}.jpg")), b"cached cover").unwrap();
-    let legacy = hash(format!(
-        "{}:{}:{}:{}:{}:{}",
-        node.id, node.dev, node.ino, node.size, node.mtime, node.mtime_ns
-    ));
-    fs::write(directory.join(format!("{legacy}.jpg")), b"legacy cover").unwrap();
+    fs::write(directory.join(format!("{key}.png")), b"cached cover").unwrap();
     fs::write(directory.join(format!("{key}.failed")), b"failed").unwrap();
     assert_eq!(
         f.request("GET", &url, json!({}), Some(&cookie), None)
@@ -1604,7 +1610,7 @@ fn batch_actions_keep_names_subtrees_and_fail_without_partial_changes() {
     fs::write(
         f.dir
             .path()
-            .join(format!(".magic-cloud/thumbnails/{key}.jpg")),
+            .join(format!(".magic-cloud/thumbnails/{key}.png")),
         b"cover",
     )
     .unwrap();
@@ -1613,7 +1619,7 @@ fn batch_actions_keep_names_subtrees_and_fail_without_partial_changes() {
     assert!(
         !f.dir
             .path()
-            .join(format!(".magic-cloud/thumbnails/{key}.jpg"))
+            .join(format!(".magic-cloud/thumbnails/{key}.png"))
             .exists()
     );
     c.restore(&a.id, None, "ask").unwrap();
@@ -1699,15 +1705,12 @@ async fn batch_routes_require_csrf_and_operate_on_the_whole_selection() {
 }
 
 #[tokio::test]
-async fn existing_successful_thumbnails_are_reused_after_upgrade() {
+async fn successful_thumbnails_are_reused_without_regeneration() {
     let f = Fixture::new();
-    let node = add_file(&mut f.core(), "root", "legacy.mp4", b"video fixture");
-    let legacy = hash(format!(
-        "{}:{}:{}:{}:{}:{}",
-        node.id, node.dev, node.ino, node.size, node.mtime, node.mtime_ns
-    ));
+    let node = add_file(&mut f.core(), "root", "cached.mp4", b"video fixture");
+    let key = thumbnails::key(&node);
     let directory = f.dir.path().join(".magic-cloud/thumbnails");
-    fs::write(directory.join(format!("{legacy}.jpg")), b"existing cover").unwrap();
+    fs::write(directory.join(format!("{key}.png")), b"existing cover").unwrap();
     let (cookie, _) = f.auth().await;
     assert_eq!(
         f.request(
@@ -1722,8 +1725,38 @@ async fn existing_successful_thumbnails_are_reused_after_upgrade() {
         StatusCode::OK
     );
     assert_eq!(
-        fs::read(directory.join(format!("{}.jpg", thumbnails::key(&node)))).unwrap(),
+        fs::read(directory.join(format!("{}.png", thumbnails::key(&node)))).unwrap(),
         b"existing cover"
     );
-    assert!(!directory.join(format!("{legacy}.jpg")).exists());
+}
+
+#[test]
+fn upload_time_survives_relocation() {
+    let f = Fixture::new();
+    let mut c = f.core();
+    let mut n = add_file(&mut c, "root", "timestamp.txt", b"timestamp");
+    n.uploaded_at = Some(1_700_000_000);
+    c.put_node(&n).unwrap();
+    let moved = c.relocate(&n.id, "root", "renamed.txt", "ask").unwrap();
+    assert_eq!(moved.uploaded_at, n.uploaded_at);
+}
+
+#[test]
+fn current_schema_records_upload_times_without_migration_tables() {
+    let f = Fixture::new();
+    let c = f.core();
+    assert_eq!(
+        c.db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    let tables: i64 =
+        c.db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_version'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 0);
+    assert_eq!(c.node("root").unwrap().uploaded_at, None);
 }

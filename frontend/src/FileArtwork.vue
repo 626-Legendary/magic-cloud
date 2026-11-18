@@ -1,20 +1,13 @@
 <script setup lang="ts">
 import { useId } from "vue";
-import {
-  FileText,
-  File,
-  Image,
-  Film,
-  Music,
-  AudioLines,
-} from "lucide-vue-next";
-const props = defineProps<{ kind: string; extension: string }>();
+import { Music, AudioLines } from "lucide-vue-next";
+import { fileIcons } from "./file-icons";
+import type { FileKind } from "./file-kind";
+defineProps<{ kind: FileKind; extension: string }>();
 const gradientId = useId();
 const labels: Record<string, string> = {
   word: "W",
-  excel: "X",
   pdf: "PDF",
-  document: "TXT",
 };
 </script>
 
@@ -64,22 +57,24 @@ const labels: Record<string, string> = {
     class="media-artwork"
     aria-hidden="true"
   >
-    <component
-      :is="kind === 'image' ? Image : Film"
-      :size="48"
-      :stroke-width="2.2"
-    />
+    <component :is="fileIcons[kind]" :size="48" :stroke-width="2.2" />
   </div>
-  <div v-else class="document-artwork" aria-hidden="true">
-    <component
-      :is="kind === 'unknown' ? File : FileText"
-      :size="68"
-      :stroke-width="1.8"
-    />
+  <div
+    v-else-if="['pdf', 'word', 'document', 'unknown'].includes(kind)"
+    class="document-artwork"
+    aria-hidden="true"
+  >
+    <component :is="fileIcons[kind]" :size="68" :stroke-width="1.8" />
     <span class="document-badge">{{
-      extension === "md"
-        ? "MD"
-        : labels[kind] || (extension || "FILE").toUpperCase().slice(0, 5)
+      labels[kind]
+        ? labels[kind]
+        : (extension || "FILE").toUpperCase().slice(0, 5)
+    }}</span>
+  </div>
+  <div v-else class="type-artwork" aria-hidden="true">
+    <component :is="fileIcons[kind]" :size="64" :stroke-width="2.2" />
+    <span class="artwork-label">{{
+      (extension || kind).toUpperCase().slice(0, 8)
     }}</span>
   </div>
 </template>

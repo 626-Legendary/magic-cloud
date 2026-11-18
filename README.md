@@ -1,52 +1,116 @@
-# Magic Cloud · 麦吉云
+<div align="center">
+  <img src="frontend/public/Logo.png" width="96" alt="Magi, the Magic Cloud penguin">
+  <h1>Magic Cloud · 麦吉云</h1>
+  <p>A little penguin, guarding your digital nest.</p>
+  <p><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
+</div>
 
-运行于 Raspberry Pi 5（8GB、64 位 Linux）的单用户私人网盘。Vue 3 + TypeScript 前端、Rust/Axum 后端、USB ext4 上的 SQLite 和原始文件；由 Cloudflare Tunnel 提供统一 HTTPS 入口。宿主机只需 Docker Engine、Compose 和系统原有的挂载/systemd 工具。
+Magic Cloud is a lightweight, single-user private cloud for the files that matter to you. Upload, organize, and share from your browser while keeping your files and database on your own server.
 
-支持真实文件管理、递归名称搜索、回收站、16 MiB 分片与 24 小时断点恢复、只读文件/目录分享、预览、数据库备份、中英文、浅/深/系统主题。视频只显示静态封面与下载，无播放器。
+Photos, videos, and work files — Magi keeps them perfectly organized. Upload, organize, and share. Leave the rest to Magi.
 
-## 首次部署
+> **Screenshot: Welcome screen**
+>
+> Reserved for the sign-in page and its Magi illustration.
+<!-- Replace this block with: ![Magic Cloud welcome screen](docs/screenshots/welcome.png) -->
 
-以下操作在你的 Pi 上执行。不要使用承载系统或其他应用数据的磁盘做拔盘测试。
+## Your files, your space
 
-1. 将仓库放在固定位置，例如 `/opt/magic-cloud`。`cp .env.example .env`，执行 `chmod 600 .env`。设置至少 12 字节的独立 `APP_PASSWORD`、至少 32 字符随机 `SESSION_SECRET`、准确的 HTTPS `APP_ORIGIN`（不含末尾 `/`）和完整的 Tunnel Token（不是 Tunnel ID/UUID）。可用 `openssl rand -hex 32` 本地生成密钥，不上传 `.env`。
-2. 使用 `lsblk -f` 确认**已格式化为 ext4**的 USB 文件系统 UUID，将其及固定挂载点填入 `STORAGE_UUID`、`STORAGE_MOUNT`。脚本不会格式化磁盘。配置值使用不带引号的普通文本；含 `$` 的 Compose 值按 Compose 规则写为 `$$`。避免密码含空白、引号、`#` 或 `$`，可直接使用随机十六进制字符。
-3. 挂载并显式初始化新的存储布局：
+- **Organize with ease.** Folders, filename search, recent files, grid and list views, and bulk move or trash actions.
+- **Upload large files.** Files up to 10 GB, chunked uploads, pause and resume, and folder uploads that preserve their structure.
+- **Share a download.** Read-only links with optional expiry and revocation. Visitors see file information and a download button; file contents are never previewed on the share page.
+- **See what you need.** Image previews, static video covers, audio playback where supported, and UTF-8 text/code previews. Other formats remain available to download.
+- **Make it yours.** English and Chinese, light and dark themes, and a layout that adapts to desktop and mobile.
+- **Keep control.** Local files, SQLite metadata, a 30-day trash, and scheduled database backups.
 
-   ```bash
-   sudo deploy/scripts/storage.sh mount
-   sudo deploy/scripts/storage.sh init --initialize-empty
-   ```
+> **Screenshot: File library**
+>
+> Reserved for the running application: folders, type icons, and file cards.
+<!-- Replace this block with: ![Magic Cloud file library](docs/screenshots/files.png) -->
 
-   初始化仅在 `files/` 和 `.magic-cloud/` 均不存在时执行；其他原始数据不会删除，也不会自动导入。将命令输出的 `STORAGE_ID` 填入 `.env`。不要对已有 Magic Cloud 存储重复初始化。默认容器 UID/GID 为 10001，初始化为该身份设置专用目录权限。
-4. 建议在 `/etc/fstab` 加入下面一行，替换 UUID 与挂载点：
+## Requirements
 
-   ```text
-   UUID=<你的UUID> /mnt/magic-cloud ext4 defaults,nofail,nodev,nosuid,noexec,x-systemd.device-timeout=10s 0 2
-   ```
+- A Linux server with kernel 5.6 or newer and support for `openat2`.
+- Docker Engine and the Docker Compose plugin. Node.js and Rust are only needed inside the build containers.
+- A dedicated, mounted **ext4 filesystem** for files and the database. The supplied storage scripts use its filesystem UUID and a storage identity marker.
+- For public access: a domain and a Cloudflare Tunnel connector token. A trusted LAN entry point can also be configured.
 
-5. 验证并在 Pi 本机构建：
+The application uses Vue 3, TypeScript, Rust/Axum, SQLite, and FFmpeg. Docker builds the application on the server.
 
-   ```bash
-   sudo deploy/scripts/storage.sh check
-   docker compose up -d --build
-   ```
+## Quick start
 
-   Rust 默认两路编译；内存不足可执行 `docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud` 后 `docker compose up -d`。
-6. 在 Cloudflare Tunnel 的连接器安装页面选择 Docker，复制安装命令 `--token` 后面的完整值，填入 `.env` 的 `CLOUDFLARE_TUNNEL_TOKEN`。仅填写 Tunnel ID（UUID）不能用于此启动方式。Compose 按 `tunnel --no-autoupdate run --token ...` 启动连接器；不要公开粘贴解析后的 Compose 配置，因为其中包含 Token。
+### 1. Configure the application
 
-   在 Cloudflare Tunnel 管理界面为域名绑定 HTTP 服务 `http://magic-cloud:5080`。域名必须与 `APP_ORIGIN` 完全一致；如果更改内部 `PORT`，同步修改 Tunnel 服务地址。公网流量由 Tunnel 转发；局域网入口按下文配置。为该域名禁用 HTML/API/文件的公开缓存，不使用 Cache Everything。
-7. 安装 USB 恢复监控：将 `deploy/systemd/` 中两个文件复制到 `/etc/systemd/system/`，把 service 的 `ExecStart` 改为仓库实际绝对路径，然后：
+From the repository directory:
 
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now magic-cloud-storage.timer
-   ```
+```bash
+cp .env.example .env
+chmod 600 .env
+openssl rand -hex 32
+```
 
-只有手动启动 Compose 无法保证拔盘后的恢复。监控停止后端、校验 UUID/存储标记，重挂 USB 并**重新创建**容器。`cloudflared` 可继续运行。数据库异常或同一挂载反复启动失败时会保持停止，详见运维文档。
+Use independently generated values for your password and session secret. Edit `.env`:
 
-## 局域网访问
+| Variable | Set it to |
+| --- | --- |
+| `APP_PASSWORD` | A unique password of at least 12 bytes |
+| `SESSION_SECRET` | An independent random secret of at least 32 characters |
+| `APP_ORIGIN` | Your exact public HTTPS origin, such as `https://cloud.example.com`, with no trailing slash |
+| `CLOUDFLARE_TUNNEL_TOKEN` | The complete connector token, not the tunnel ID |
+| `STORAGE_MOUNT` | The fixed storage mount point, such as `/mnt/magic-cloud` |
+| `STORAGE_UUID` | The ext4 filesystem UUID reported by `lsblk -f` |
+| `STORAGE_ID` | Fill this in after the initialization step below |
 
-公网继续使用 `APP_ORIGIN` 的 HTTPS 域名。要同时通过树莓派 IP 访问，在 `.env` 设置：
+The storage scripts read plain, unquoted configuration values. Random hexadecimal credentials work well; avoid whitespace, quotes, `#`, and `$` in credentials used by those scripts. See [.env.example](.env.example) for all settings.
+
+### 2. Mount and initialize storage
+
+Confirm the correct ext4 filesystem with `lsblk -f`, then run:
+
+```bash
+sudo deploy/scripts/storage.sh mount
+sudo deploy/scripts/storage.sh init --initialize-empty
+```
+
+Copy the printed `STORAGE_ID` into `.env`. Initialization creates the dedicated `files/` and `.magic-cloud/` directories only when both are absent. It does not format the disk, delete existing files, or import files placed there outside the application. Do not reinitialize an existing Magic Cloud storage layout.
+
+For mounting after a server restart, add an entry to `/etc/fstab`, using your actual filesystem UUID and mount point:
+
+```fstab
+UUID=<your-ext4-uuid> /mnt/magic-cloud ext4 defaults,nofail,nodev,nosuid,noexec,x-systemd.device-timeout=10s 0 2
+```
+
+### 3. Configure the tunnel and start
+
+In Cloudflare, route your public hostname to the HTTP service **`http://magic-cloud:5080`**. The public origin must match `APP_ORIGIN`.
+
+```bash
+sudo deploy/scripts/storage.sh check
+docker compose up -d --build
+docker compose ps
+```
+
+Open your configured HTTPS domain and sign in with `APP_PASSWORD`. If builds exceed the server's memory capacity, reduce Rust compilation concurrency:
+
+```bash
+docker compose build --build-arg CARGO_BUILD_JOBS=1 magic-cloud
+docker compose up -d
+```
+
+### 4. Enable storage recovery
+
+Copy the files in `deploy/systemd/` to `/etc/systemd/system/`, and update the service's `ExecStart` to the absolute repository path. Then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now magic-cloud-storage.timer
+```
+
+The monitor checks storage identity and recreates the application container after the correct storage becomes available again. This step matters for removable storage and recovery after a server restart. See [Operations](docs/operations.md) for failure states and manual recovery.
+
+## Access from your LAN
+
+Add the server's actual LAN address to `.env`:
 
 ```dotenv
 PORT=5080
@@ -54,39 +118,57 @@ LAN_BIND_ADDRESS=192.168.0.101
 LAN_ORIGIN=http://192.168.0.101:5080
 ```
 
-将示例 IP 换成树莓派实际局域网 IP，然后执行 `docker compose up -d --build --force-recreate magic-cloud`，访问 `http://192.168.0.101:5080`。Compose 只将端口绑定到指定地址；局域网 IP 改变后需更新这两个配置并重建容器。样例配置默认仅绑定回环地址，LAN_ORIGIN 留空时关闭 HTTP 登录入口。
-
-两个入口使用同一密码和 USB 数据，分别登录。公网会话继续使用 Secure Cookie；局域网使用独立的 host-only、HttpOnly、SameSite=Strict 会话，仍校验精确 Origin 和 CSRF。HTTP 不加密，请仅在可信局域网使用，不要将此端口做公网转发。
-
-局域网上传、恢复与分片校验支持普通 HTTP，无需修改浏览器的安全设置。分享链接使用当前入口地址；从局域网创建的 IP 链接只能由能访问该 IP 的设备打开。断网时可继续使用局域网入口，服务仍要求正确挂载 USB。
-
-## 使用与默认值
-
-- 单文件最大 **10,000,000,000 字节**；分片 16 MiB，同时两个文件，每文件两个分片。开始上传前浏览器 Worker 逐块计算 SHA-256，因此大文件先显示“正在校验文件”；完成时服务端流式核验完整摘要。
-- 上传引擎位于路由生命周期之外。刷新、关闭浏览器或系统休眠后不继续后台上传；24 小时内重新选择原文件并核验完整摘要可恢复。进度为服务器确认的字节数，速度为本次运行已确认数据的平均速度。
-- 同名项目由用户选择覆盖、自动重命名或取消。覆盖旧项目进入回收站；回收站 30 天清理，不提供文件版本历史。
-- 删除对象会撤销对象及其子树的直接分享；恢复不重启这些权限。文件移出某个分享目录后不能再使用原目录 Token 访问。重命名/移动保留对象稳定 ID。
-- 最近文件根据元数据中的修改时间排序。用户直接操作 USB 文件不受支持；身份异常会拒绝访问，不自动扫描导入。
-- 上传安全余量为 `max(2 GiB, 总容量 5%)`，可配置。预留不能消除运行中的磁盘满或 I/O 故障，也不会触发自动清空回收站。
-- 图片/视频在上传完成后自动加入缩略图队列，并发一；启动时补齐存量文件。视频可处理上传上限内的文件（最大 10 GB），图片缩略图输入上限为 512 MiB；解码内存 512 MiB、CPU 15 秒、墙钟 20 秒，输出最大 2 MiB。使用可寻址的已核验文件句柄，封面按文件身份缓存，读取与重启时复用；删除对象时清理缓存。前端在生成中自动等待并展示就绪封面，失败时明确提示。协议与外部引用限制见安全边界。
-- 文本/代码预览限 2 MiB、UTF-8，按文本转义展示；图片/音频/PDF 通过认证接口预览。
-- 每日一致性 SQLite 备份，默认保留七份，可在设置创建、下载及确认后删除。**数据库备份不包含原始文件；同盘备份无法抵御 USB 整盘损坏。**请把重要文件及数据库另存到其他设备。
-
-## 构建、测试和运维
-
-登录页 Footer 自动显示浏览器当前年份。版本号由根目录 `.env` 的 `APP_VERSION=1.0.0` 配置（不带 `v`），通过 Compose 构建参数写入前端。修改后执行 `docker compose up -d --build --no-deps magic-cloud` 更新；仅重启容器不会改变版本号。
+Apply it:
 
 ```bash
-# 不需要宿主机 Rust 或 Node
-./deploy/scripts/check.sh
-# 查看应用日志和服务状态
- docker compose logs --tail=100 magic-cloud
- docker compose ps
- sudo journalctl -u magic-cloud-storage.service -n 100
+docker compose up -d --no-deps --force-recreate magic-cloud
 ```
 
-代码提供 [API 契约](docs/api.md)、[架构和数据模型](docs/architecture.md)、[前端设计实现](docs/ui-design.md)、[安全边界](docs/security.md)、[升级与恢复步骤](docs/operations.md) 和 [验收清单](docs/acceptance.md)。实际执行的验证与限制记录在 [验证结果](docs/validation.md)。
+Open `http://192.168.0.101:5080`. Public and LAN entry points use the same files and password but have separate sign-in sessions. HTTP is intended for a trusted LAN; use the tunnel's HTTPS domain for public access. A share created from the LAN entry point uses that address, so the recipient must be able to reach it.
 
-Cloudflare 单次请求限制取决于账户计划，16 MiB 分片用于减少单次请求体大小；部署前应检查[官方上传限制](https://developers.cloudflare.com/network/maximum-upload-size/)及当前适用条款。流式和 Range 下载不保证 Cloudflare 公网 10 GB 下载或视频分发可用，局域网 IP 入口不依赖 Cloudflare。
+## A few useful details
 
-三份输入需求文档只保留于本地，已排除 Git 提交。运行数据、真实秘密不应放在源码目录内。
+| Topic | Behavior |
+| --- | --- |
+| Upload limit | 10,000,000,000 bytes per file; 16 MiB chunks |
+| Resuming | Within 24 hours, reselect the original file and verify it to resume; uploads stop when the browser is closed |
+| Trash | Files are permanently removed after 30 days |
+| Backups | Consistent SQLite snapshots, normally every 24 hours; seven retained by default |
+| Preview | Supported images, audio, UTF-8 text/code, and static video covers; PDF and office documents show a download option |
+| Upload time | Recorded separately for new uploads; files without this value show “Not recorded” |
+| Sharing | Download-only visitor pages; links can expire or be revoked |
+
+Database backups **do not contain your files**. Keep independent copies of important files and database backups on another device. Manage files through Magic Cloud to keep its index consistent.
+
+> **Screenshot: Sharing and settings**
+>
+> Reserved for the download-only visitor page or application settings.
+<!-- Replace this block with: ![Magic Cloud sharing and settings](docs/screenshots/sharing.png) -->
+
+## Update and maintain
+
+The footer version comes from `APP_VERSION` in `.env`. It is embedded during the frontend build, so changing it requires a rebuild.
+
+```bash
+# Build and update the application after following the backup steps below.
+docker compose up -d --build --no-deps magic-cloud
+
+# Inspect service status and recent application logs.
+docker compose ps
+docker compose logs --tail=100 magic-cloud
+```
+
+Before upgrading, export a database backup and keep an independent copy of important files. The project uses a single current database schema; changes to that structure require a matching backup for recovery. Follow the [upgrade and recovery procedure](docs/operations.md).
+
+## Documentation and development
+
+- [Architecture and storage model](docs/architecture.md)
+- [API reference](docs/api.md)
+- [Security boundaries](docs/security.md)
+- [Operations, backups, and recovery](docs/operations.md)
+- [UI behavior](docs/ui-design.md)
+- [Validation guide](docs/validation.md) and [acceptance checklist](docs/acceptance.md)
+
+Run `./deploy/scripts/check.sh` for containerized formatting, tests, static checks, and a build. Browser regression tests require a disposable deployment; see the validation guide.
+
+Cloudflare request limits and usage terms depend on your plan and configuration. Check the [Cloudflare upload limits](https://developers.cloudflare.com/network/maximum-upload-size/) for your deployment; support for large files in the application does not guarantee the same limits through every proxy.

@@ -41,36 +41,20 @@ pub async fn worker(a: App) {
 }
 pub fn key(n: &Node) -> String {
     hash(format!(
-        "seekable-v2:{}:{}:{}:{}:{}:{}",
-        n.id, n.dev, n.ino, n.size, n.mtime, n.mtime_ns
-    ))
-}
-fn legacy_key(n: &Node) -> String {
-    hash(format!(
         "{}:{}:{}:{}:{}:{}",
         n.id, n.dev, n.ino, n.size, n.mtime, n.mtime_ns
     ))
 }
-fn cached_path(c: &Core, n: &Node) -> Result<Option<String>> {
-    let path = format!(".magic-cloud/thumbnails/{}.jpg", key(n));
-    if c.storage.exists(&path) {
-        return Ok(Some(path));
-    }
-    let legacy = format!(".magic-cloud/thumbnails/{}.jpg", legacy_key(n));
-    if c.storage.exists(&legacy) {
-        c.storage.rename(&legacy, &path)?;
-        return Ok(Some(path));
-    }
-    Ok(None)
+fn cached_path(c: &Core, n: &Node) -> Option<String> {
+    let path = format!(".magic-cloud/thumbnails/{}.png", key(n));
+    c.storage.exists(&path).then_some(path)
 }
 pub fn remove_cached(c: &Core, n: &Node) -> Result<()> {
-    let legacy = legacy_key(n);
-    for key in [key(n), legacy] {
-        for extension in ["jpg", "failed"] {
-            let path = format!(".magic-cloud/thumbnails/{key}.{extension}");
-            if c.storage.exists(&path) {
-                c.storage.remove(&path)?;
-            }
+    let key = key(n);
+    for extension in ["png", "failed"] {
+        let path = format!(".magic-cloud/thumbnails/{key}.{extension}");
+        if c.storage.exists(&path) {
+            c.storage.remove(&path)?;
         }
     }
     Ok(())
@@ -88,6 +72,9 @@ fn format(name: &str) -> Option<&'static str> {
         "mp4" | "m4v" | "mov" => Some("mov"),
         "mkv" | "webm" => Some("matroska"),
         "avi" => Some("avi"),
+        "flv" => Some("flv"),
+        "wmv" => Some("asf"),
+        "ico" => Some("ico"),
         _ => None,
     }
 }
@@ -124,7 +111,9 @@ fn render(input: std::fs::File, format: &str) -> Result<Vec<u8>> {
             "-f",
             "image2pipe",
             "-vcodec",
-            "mjpeg",
+            "png",
+            "-pix_fmt",
+            "rgba",
             "pipe:1",
         ])
         .stdin(Stdio::from(input))
@@ -187,7 +176,7 @@ pub async fn thumbnail(State(a): State<App>, Path(id): Path<String>) -> Result<R
                 return Err(Error::missing());
             }
             let key = key(&n);
-            if let Some(path) = cached_path(c, &n)? {
+            if let Some(path) = cached_path(c, &n) {
                 return Ok(Some(c.storage.file(&path, libc::O_RDONLY)?));
             }
             if c.storage
@@ -211,7 +200,7 @@ async fn generate(a: &App, id: String) -> Result<()> {
             c.verify(&n)?;
             let fmt = format(&n.name).ok_or_else(Error::missing)?;
             let key = key(&n);
-            if cached_path(c, &n)?.is_some()
+            if cached_path(c, &n).is_some()
                 || c.storage
                     .exists(&format!(".magic-cloud/thumbnails/{key}.failed"))
             {
@@ -242,7 +231,7 @@ async fn generate(a: &App, id: String) -> Result<()> {
         let key = key(&current);
         match rendered {
             Ok(data) => {
-                let path = format!(".magic-cloud/thumbnails/{key}.jpg");
+                let path = format!(".magic-cloud/thumbnails/{key}.png");
                 if !c.storage.exists(&path) {
                     let tmp = format!(".magic-cloud/thumbnails/{}.tmp", core::id());
                     let result = (|| -> Result<()> {
@@ -278,6 +267,19 @@ async fn image_response(file: std::fs::File) -> Result<Response> {
         tokio::fs::File::from_std(file),
     )));
     r.headers_mut()
-        .insert("content-type", HeaderValue::from_static("image/jpeg"));
+        .insert("content-type", HeaderValue::from_static("image/png"));
     Ok(r)
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+    #[test]
+    fn added_media_formats_use_explicit_demuxers() {
+        assert_eq!(format("camera.FLV"), Some("flv"));
+        assert_eq!(format("clip.WMV"), Some("asf"));
+        assert_eq!(format("favicon.ICO"), Some("ico"));
+        assert!(!supported("source.ts"));
+        assert!(!supported("artwork.svg"));
+    }
 }

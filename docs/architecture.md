@@ -19,11 +19,11 @@ USB mount/
     └── backups/               一致性 SQLite 快照
 ```
 
-`nodes` 保存稳定 ID、parent、name、path、kind、size、mtime/mtime_ns、dev、ino、deleted；根 ID 为 `root`。路径不承担公开身份。`shares` 引用根 ID，保存 Token 摘要、使用 SESSION_SECRET 派生密钥加密的 Token、期限和撤销状态；加密副本仅供所有者重新复制链接。更改 SESSION_SECRET 后旧分享仍可验证摘要，但所有者无法解密复制，应重新生成分享。
+`nodes` 保存稳定 ID、parent、name、path、kind、size、mtime/mtime_ns、uploaded_at、dev、ino、deleted；根 ID 为 `root`。`uploaded_at` 为独立的上传完成时间；历史文件缺少该信息时为 null。路径不承担公开身份。`shares` 引用根 ID，保存 Token 摘要、使用 SESSION_SECRET 派生密钥加密的 Token、期限和撤销状态；加密副本仅供所有者重新复制链接。更改 SESSION_SECRET 后旧分享仍可验证摘要，但所有者无法解密复制，应重新生成分享。
 
-`sessions` 保存随机会话摘要、CSRF Token、到期时间和密码/密钥配置世代。`login_audit` 保留最近 1,000 条记录。`uploads` 保存文件摘要、目标 ID、大小、冲突策略、状态、期限、最终节点；`chunks` 唯一键为上传 ID/片序号。`trash` 保存被删除子树原位置及实际存放路径。`operations` 保存跨 SQLite/ext4 的持久变更意图。`config` 绑定数据库与 storage-id。
+`sessions` 保存随机会话摘要、CSRF Token、到期时间和密码/密钥配置世代。`login_audit` 保留最近 50 条记录。`uploads` 保存文件摘要、目标 ID、大小、冲突策略、状态、期限、最终节点；`chunks` 唯一键为上传 ID/片序号。`trash` 保存被删除子树原位置及实际存放路径。`operations` 保存跨 SQLite/ext4 的持久变更意图。`config` 绑定数据库与 storage-id。
 
-迁移位于 `backend/migrations`，事务应用，`PRAGMA user_version` 标识版本。未知更高版本拒绝启动。SQLite 开启 WAL、synchronous=FULL、foreign_keys、5 秒 busy_timeout，并使用依赖锁文件固定 bundled SQLite。运行数据不随镜像升级覆盖。
+数据库由 `backend/schema.sql` 定义当前结构，启动时在事务中初始化；仅保留当前结构标记，不维护历史迁移链。未知结构标记拒绝启动。SQLite 开启 WAL、synchronous=FULL、foreign_keys、5 秒 busy_timeout，并使用依赖锁文件固定 bundled SQLite。运行数据不随镜像升级覆盖。
 
 ## 可恢复文件操作
 

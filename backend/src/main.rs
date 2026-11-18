@@ -808,7 +808,7 @@ async fn public(
     .await
 }
 fn public_node(n: Node) -> Value {
-    json!({"id":n.id,"name":n.name,"kind":n.kind,"size":n.size,"mtime":n.mtime})
+    json!({"id":n.id,"name":n.name,"kind":n.kind,"size":n.size,"mtime":n.mtime,"uploaded_at":n.uploaded_at})
 }
 #[derive(Deserialize, Default)]
 struct Download {

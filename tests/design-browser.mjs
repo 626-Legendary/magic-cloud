@@ -131,7 +131,7 @@ try {
     .waitFor();
   await p.unroute("**/chunks/**");
   await p.locator(".transfer-title").click();
-  for (const cls of ["pdf", "word", "excel", "unknown"])
+  for (const cls of ["pdf", "word", "excel", "archive"])
     assert.equal(await p.locator(".file-item." + cls).count(), 1);
   assert.equal(await p.locator(".file-grid").count(), 1);
   assert.equal(
@@ -376,7 +376,7 @@ try {
     JSON.stringify(result, null, 2),
   );
   console.log(
-    "PASS real upload drawer/progress, categories, selection, list geometry, search, dialogs/menu keyboard/focus return, labeled settings, dark contrast, 320px drawer trap/Escape/inert, empty states, reduced motion",
+    "PASS real upload dialog/progress, categories, selection, list geometry, search, dialogs/menu keyboard/focus return, labeled settings, dark contrast, 320px drawer trap/Escape/inert, empty states, reduced motion",
   );
 } finally {
   await c.close();

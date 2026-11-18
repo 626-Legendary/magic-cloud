@@ -42,6 +42,7 @@ pub struct Node {
     pub kind: String,
     pub size: u64,
     pub mtime: i64,
+    pub uploaded_at: Option<i64>,
     pub mtime_ns: i64,
     pub dev: u64,
     pub ino: u64,
@@ -96,6 +97,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
         kind: r.get(4)?,
         size: r.get::<_, i64>(5)? as u64,
         mtime: r.get(6)?,
+        uploaded_at: r.get(11)?,
         mtime_ns: r.get(10)?,
         dev: r.get::<_, i64>(7)? as u64,
         ino: r.get::<_, i64>(8)? as u64,
@@ -138,7 +140,7 @@ impl Core {
             return Err(Error::bad("unsupported_database_version"));
         }
         db.execute_batch("BEGIN IMMEDIATE;")?;
-        db.execute_batch(include_str!("../migrations/001.sql"))?;
+        db.execute_batch(include_str!("../schema.sql"))?;
         db.execute_batch("PRAGMA user_version=1; COMMIT;")?;
         let generation = hash(format!("{secret}\0{password}"));
         let mut c = Self {
@@ -185,6 +187,7 @@ impl Core {
                 kind: "folder".into(),
                 size: 0,
                 mtime: m.mtime(),
+                uploaded_at: None,
                 mtime_ns: m.mtime_nsec(),
                 dev: m.dev(),
                 ino: m.ino(),
@@ -228,7 +231,7 @@ impl Core {
         Ok(())
     }
     pub fn put_node(&self, n: &Node) -> Result<()> {
-        self.db.execute("INSERT INTO nodes VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(id) DO UPDATE SET parent=excluded.parent,name=excluded.name,path=excluded.path,kind=excluded.kind,size=excluded.size,mtime=excluded.mtime,dev=excluded.dev,ino=excluded.ino,deleted=excluded.deleted,mtime_ns=excluded.mtime_ns",params![n.id,n.parent,n.name,n.path,n.kind,n.size as i64,n.mtime,n.dev as i64,n.ino as i64,n.deleted,n.mtime_ns])?;
+        self.db.execute("INSERT INTO nodes(id,parent,name,path,kind,size,mtime,dev,ino,deleted,mtime_ns,uploaded_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(id) DO UPDATE SET parent=excluded.parent,name=excluded.name,path=excluded.path,kind=excluded.kind,size=excluded.size,mtime=excluded.mtime,dev=excluded.dev,ino=excluded.ino,deleted=excluded.deleted,mtime_ns=excluded.mtime_ns,uploaded_at=excluded.uploaded_at",params![n.id,n.parent,n.name,n.path,n.kind,n.size as i64,n.mtime,n.dev as i64,n.ino as i64,n.deleted,n.mtime_ns,n.uploaded_at])?;
         Ok(())
     }
     pub fn node(&self, id: &str) -> Result<Node> {
@@ -627,6 +630,7 @@ impl Core {
             kind: "folder".into(),
             size: 0,
             mtime: meta.mtime(),
+            uploaded_at: None,
             mtime_ns: meta.mtime_nsec(),
             dev: meta.dev(),
             ino: meta.ino(),
@@ -775,6 +779,7 @@ impl Core {
             kind: "file".into(),
             size: u.size,
             mtime: meta.mtime(),
+            uploaded_at: Some(now()),
             mtime_ns: meta.mtime_nsec(),
             dev: meta.dev(),
             ino: meta.ino(),
@@ -836,7 +841,7 @@ impl Core {
                     None
                 }
             } else {
-                name.split('-').next().and_then(|v| v.parse::<i64>().ok())
+                None
             }
             .unwrap_or(entry.metadata()?.mtime());
             entries.push((timestamp, name));

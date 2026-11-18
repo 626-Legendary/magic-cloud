@@ -81,12 +81,12 @@ async function upload(bytes, name) {
   return api(`/uploads/${upload.id}/complete`, "POST", {});
 }
 const prefix = `thumbnail-lifecycle-${Date.now()}`;
-const before = new Set(files(".jpg"));
+const before = new Set(files(".png"));
 const count = renders();
 const node = await upload(readFileSync(video), prefix + ".mp4");
 // Deliberately never request /thumbnail until the background job has written its output.
-await until(() => files(".jpg").some((n) => !before.has(n)));
-const cached = files(".jpg").find((n) => !before.has(n));
+await until(() => files(".png").some((n) => !before.has(n)));
+const cached = files(".png").find((n) => !before.has(n));
 const modified = statSync(`${directory}/${cached}`).mtimeMs;
 for (let i = 0; i < 3; i++) {
   const response = await fetch(base + `/api/nodes/${node.id}/thumbnail`, {
@@ -94,8 +94,11 @@ for (let i = 0; i < 3; i++) {
   });
   assert.equal(response.status, 200);
   const bytes = new Uint8Array(await response.arrayBuffer());
-  assert.equal(bytes[0], 255);
-  assert.equal(bytes[1], 216);
+  assert.equal(response.headers.get("content-type"), "image/png");
+  assert.deepEqual(
+    Array.from(bytes.slice(0, 8)),
+    [137, 80, 78, 71, 13, 10, 26, 10],
+  );
 }
 assert.equal(statSync(`${directory}/${cached}`).mtimeMs, modified);
 if (count !== undefined) assert.equal(renders(), count + 1);

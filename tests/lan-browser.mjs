@@ -59,7 +59,7 @@ try {
     .click();
   await row.locator(".file-actions > button").click();
   const downloadEvent = page.waitForEvent("download");
-  await row.getByRole("button", { name: "下载", exact: true }).click();
+  await row.getByRole("menuitem", { name: "下载", exact: true }).click();
   const download = await downloadEvent;
   assert.equal(await download.failure(), null);
   const direct = await context.request.get(download.url());
@@ -67,7 +67,7 @@ try {
   assert.equal((await direct.body()).toString(), content);
   if (!(await row.locator(".context-menu").isVisible()))
     await row.locator(".file-actions > button").click();
-  await row.getByRole("button", { name: "分享", exact: true }).click();
+  await row.getByRole("menuitem", { name: "分享", exact: true }).click();
   await page
     .locator("dialog[open]")
     .getByRole("button", { name: "确认", exact: true })
@@ -90,7 +90,7 @@ try {
   try {
     const sharedPage = await sharedContext.newPage();
     await sharedPage.goto(shared);
-    await sharedPage.locator(".public-single").waitFor();
+    await sharedPage.locator(".public-download-card").waitFor();
     assert.equal(await sharedPage.locator(".sidebar").count(), 0);
   } finally {
     await sharedContext.close();

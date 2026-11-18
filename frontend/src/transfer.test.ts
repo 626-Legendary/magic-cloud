@@ -1,4 +1,4 @@
-import { beforeAll, describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 vi.mock("./api", () => ({
   ApiError: class extends Error {
     constructor(
@@ -26,16 +26,8 @@ class HashWorker {
 }
 vi.stubGlobal("Worker", HashWorker);
 const { api, putChunk } = await import("./api");
-const {
-  transfer,
-  enqueue,
-  CHUNK,
-  pause,
-  resume,
-  recoverTasks,
-  reselect,
-  MAX_FILE,
-} = await import("./transfer");
+const { transfer, enqueue, CHUNK, pause, recoverTasks, reselect, MAX_FILE } =
+  await import("./transfer");
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 describe("global transfer engine", () => {
   it("limits active files to two and chunks per file to two, retaining state across navigation", async () => {
