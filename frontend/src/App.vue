@@ -13,7 +13,6 @@ import { useRoute, useRouter } from "vue-router";
 import {
   Cloud,
   Folder,
-  File,
   FileText,
   Search,
   Upload as UploadIcon,
@@ -1234,12 +1233,7 @@ onUnmounted(() => {
           class="public-file"
           @click="publicOpen(n)"
         >
-          <FileArtwork
-            :kind="fileKind(n)"
-            :extension="fileNameParts(n).extension.slice(1)"
-            :class="kindClass(n)"
-            compact
-          />
+          <FileArtwork :node="n" compact />
           <span class="file-name"
             ><span class="file-stem">{{ fileNameParts(n).stem }}</span
             ><span class="file-extension">{{
@@ -1275,22 +1269,15 @@ onUnmounted(() => {
             :class="kindClass(publicData.node)"
             aria-hidden="true"
           >
-            <FileArtwork
-              :kind="fileKind(publicData.node)"
-              :extension="fileNameParts(publicData.node).extension.slice(1)"
-              :class="kindClass(publicData.node)"
-            />
+            <FileArtwork :node="publicData.node" />
           </div>
           <FileMetadata :node="publicData.node" />
         </div>
         <div class="shared-download-area">
           <div class="shared-download-file">
-            <FileArtwork
-              :kind="fileKind(publicData.node)"
-              :extension="fileNameParts(publicData.node).extension.slice(1)"
-              :class="kindClass(publicData.node)"
-              compact
-            /><span class="file-name" :title="publicData.node.name"
+            <FileArtwork :node="publicData.node" compact /><span
+              class="file-name"
+              :title="publicData.node.name"
               ><span class="file-stem">{{
                 fileNameParts(publicData.node).stem
               }}</span
@@ -1351,9 +1338,7 @@ onUnmounted(() => {
         <p class="hero-support">{{ t("heroSupport") }}</p>
       </div>
       <div class="privacy-pill">
-        <ShieldHouse aria-hidden="true" :size="16" />{{
-          t("privateStorage")
-        }}
+        <ShieldHouse aria-hidden="true" :size="16" />{{ t("privateStorage") }}
       </div>
     </section>
     <section class="login-form-wrap">
@@ -1736,13 +1721,7 @@ onUnmounted(() => {
                 @click="openNode(n)"
               >
                 <div class="file-symbol">
-                  <FileArtwork
-                    :compact="!grid"
-                    :kind="fileKind(n)"
-                    :extension="
-                      fileNameParts(n).extension.slice(1).toLowerCase()
-                    "
-                  />
+                  <FileArtwork :compact="!grid" :node="n" />
                   <MediaThumbnail
                     v-if="grid && ['image', 'video'].includes(fileKind(n))"
                     :id="n.id"
@@ -1881,12 +1860,7 @@ onUnmounted(() => {
             }}</RouterLink>
           </div>
           <article v-for="n in trashRows" :key="n.id" class="data-row">
-            <FileArtwork
-              :kind="fileKind(n)"
-              :extension="fileNameParts(n).extension.slice(1)"
-              :class="kindClass(n)"
-              compact
-            />
+            <FileArtwork :node="n" compact />
             <div class="grow">
               <strong>{{ n.name }}</strong><small
                 >{{ date(n.deleted_at) }} · {{ bytes(n.size) }}</small
@@ -1997,7 +1971,7 @@ onUnmounted(() => {
             </div>
             <p class="muted">{{ t("backupHint") }}</p>
             <div v-for="b in backupRows" :key="b" class="data-row">
-              <File aria-hidden="true" :size="20" /><span
+              <FileArtwork :node="{ kind: 'file', name: b }" compact /><span
                 class="grow mono backup-name"
                 >{{ b }}</span
               ><a class="button" :href="'/api/settings/backups/' + b"
@@ -2066,9 +2040,10 @@ onUnmounted(() => {
           class="transfer-task"
         >
           <div class="transfer-task-top">
-            <File aria-hidden="true" :size="20" /><strong :title="task.name">{{
-              task.name
-            }}</strong
+            <FileArtwork
+              :node="{ kind: 'file', name: task.name }"
+              compact
+            /><strong :title="task.name">{{ task.name }}</strong
             ><span class="task-state" :class="task.status" role="status">{{
               t(task.status)
             }}</span>
@@ -2461,11 +2436,7 @@ onUnmounted(() => {
           :aria-busy="previewBusy"
         >
           <div v-if="previewError" class="unsupported-preview" role="status">
-            <FileArtwork
-              :kind="fileKind(preview)"
-              :extension="fileNameParts(preview).extension.slice(1)"
-              :class="kindClass(preview)"
-            />
+            <FileArtwork :node="preview" />
             <p>{{ previewError }}</p>
           </div>
           <span

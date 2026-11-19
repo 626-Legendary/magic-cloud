@@ -49,7 +49,7 @@ node tests/design-browser.mjs
 
 `tests/thumbnail-transparency.mjs` 使用真实透明 PNG 上传检查生成缩略图的 Alpha 通道、中心像素、PNG 格式及浅/深主题显示，需要可丢弃部署标记、测试地址/密码和浏览器 CDP 地址。
 
-`tests/visitor-details-browser.mjs` 检查访客页无文件预览请求、文件名不重复、下载入口、统一不支持预览提示、详情字段、居中上传模态框和英文登录布局。它使用模拟 API 数据，不会修改真实文件；需要 `MC_BROWSER_CDP` 与 `MC_TEST_ORIGIN`。
+`tests/visitor-details-browser.mjs` 比较同一文档在网格、列表、最近文件、回收站、详情、分享、上传任务和备份列表中的 SVG 与类型色，覆盖大小写后缀及浅/深主题；同时检查访客页无文件预览请求、文件名不重复、下载入口、统一不支持预览提示、详情字段、居中上传模态框和英文登录布局。它使用模拟 API 数据，不会修改真实文件；需要 `MC_BROWSER_CDP` 与 `MC_TEST_ORIGIN`。
 
 `tests/loading-drag-browser.mjs` 通过模拟 API 延迟检查加载页尺寸，并回归拖拽取消、移出、嵌套元素、窗口失焦、事件中断及黄色安全图标。只读运行，使用浏览器 CDP 与测试地址。
 

@@ -42,22 +42,77 @@ const examples = [
     mtime: 1700000000,
   },
   { id: "empty", name: "Empty.txt", kind: "file", size: 0, mtime: 1700000000 },
-  ...["EXE", "7Z", "ZIP", "RAR", "JSON", "JS", "TS", "PY", "unrecognized"].map(
-    (extension) => ({
-      id: extension,
-      name: `Example.${extension}`,
-      kind: "file",
-      size: 1,
-      mtime: 1700000000,
-    }),
-  ),
+  ...[
+    "DOCX",
+    "DOC",
+    "XLSX",
+    "PPTX",
+    "PSD",
+    "APK",
+    "EXE",
+    "DMG",
+    "DEB",
+    "APPIMAGE",
+    "7Z",
+    "ZIP",
+    "RAR",
+    "JSON",
+    "JS",
+    "TS",
+    "PY",
+    "unrecognized",
+  ].map((extension) => ({
+    id: extension,
+    name: `Example.${extension}`,
+    kind: "file",
+    size: 1,
+    mtime: 1700000000,
+  })),
 ];
 const nodes = { nodes: examples, breadcrumbs: [{ id: "root", name: "Root" }] };
+const mediaNodes = [
+  { id: "folder", name: "Folder", kind: "folder", size: 0, mtime: 1700000000 },
+  ...["png", "mp3", "mp4"].map((extension) => ({
+    id: extension,
+    name: `Media.${extension}`,
+    kind: "file",
+    size: 1,
+    mtime: 1700000000,
+  })),
+];
 const fixtureSystem = {
   storage: { total: 1000000000, used: 1000 },
   system: { version: "1.0.1" },
 };
+const pendingUpload = {
+  id: "fixture-upload",
+  name: "Example.docx",
+  parent: "root",
+  size: 3000000,
+  digest: "a".repeat(64),
+  strategy: "ask",
+  state: "pending",
+  expires: 4102444800,
+};
 const errors = [];
+const documentIcons = new Map();
+async function iconSnapshot(artwork) {
+  return artwork.evaluate((element) => ({
+    tag: element.tagName.toLowerCase(),
+    viewBox: element.getAttribute("viewBox"),
+    drawing: element.innerHTML,
+    color: getComputedStyle(element).color,
+  }));
+}
+async function assertSameIcon(artwork, name) {
+  const actual = await iconSnapshot(artwork);
+  assert.equal(actual.tag, "svg");
+  assert.deepEqual(
+    actual,
+    documentIcons.get(name),
+    name + " must use the same document vector and color",
+  );
+}
 async function context(mode = "owner", language = "zh", width = 1280) {
   const c = await browser.newContext({ viewport: { width, height: 900 } });
   await c.addInitScript(
@@ -79,7 +134,15 @@ async function context(mode = "owner", language = "zh", width = 1280) {
     if (path === "/api/auth/session") {
       if (mode === "login") status = 401;
       data = { csrf: "fixture-only" };
-    } else if (path === "/api/nodes") data = nodes;
+    } else if (path === "/api/nodes")
+      data = mode === "media" ? { ...nodes, nodes: mediaNodes } : nodes;
+    else if (path.endsWith("/thumbnail")) {
+      status = 415;
+      data = { error: { code: "unsupported_preview" } };
+    } else if (path === "/api/uploads") data = [pendingUpload];
+    else if (path === "/api/uploads/fixture-upload")
+      data = { upload: pendingUpload, chunk_size: 16777216, chunks: [] };
+    else if (path === "/api/settings/backups") data = ["fixture-backup.db"];
     else if (path === "/api/trash")
       data = examples.map((node) => ({ ...node, deleted_at: 1700000000 }));
     else if (path === "/api/settings") data = fixtureSystem;
@@ -130,28 +193,56 @@ try {
     await p.goto(base + "/files/root");
     await p.locator(".file-item").first().waitFor();
     for (const example of examples) {
-      const row = p
-        .locator(".file-item")
-        .filter({
-          has: p.getByRole("button", { name: example.name, exact: true }),
-        });
+      const row = p.locator(".file-item").filter({
+        has: p.getByRole("button", { name: example.name, exact: true }),
+      });
       const badge = row.locator(".document-badge");
       const extension = example.name.split(".").at(-1);
       assert.equal(
-        await badge.textContent(),
+        (await badge.textContent()).trim(),
         extension === "unrecognized" ? "FILE" : extension.toUpperCase(),
       );
       const paper = await row.locator(".document-artwork").boundingBox();
       const label = await badge.boundingBox();
-      assert(label.x + label.width >= paper.x + paper.width - 1);
-      assert(label.y + label.height <= paper.y + paper.height);
+      assert(
+        label.x >= paper.x - 1 &&
+          label.x + label.width <= paper.x + paper.width + 1,
+      );
+      assert(
+        label.y >= paper.y - 1 &&
+          label.y + label.height <= paper.y + paper.height + 1,
+      );
+      const snapshot = await iconSnapshot(row.locator(".document-artwork"));
+      assert.equal(snapshot.tag, "svg");
+      assert.equal(snapshot.viewBox, "0 0 80 88");
+      if (documentIcons.has(example.name))
+        assert.deepEqual(snapshot, documentIcons.get(example.name));
+      else documentIcons.set(example.name, snapshot);
     }
+    await p.locator(".transfer-title").click();
+    await assertSameIcon(
+      p.locator(".transfer-task-top .document-artwork"),
+      "Example.docx",
+    );
+    await screenshot(p, `transfer-icon-${width}`);
+    await p.locator(".transfer-title").click();
     await screenshot(p, `file-badges-grid-${width}`);
     await p.getByRole("button", { name: "切换视图 list", exact: true }).click();
     assert.equal(
       await p.locator(".document-artwork.is-compact").count(),
       examples.length,
     );
+    for (const example of examples) {
+      const row = p.locator(".file-item").filter({
+        has: p.getByRole("button", { name: example.name, exact: true }),
+      });
+      await assertSameIcon(row.locator(".document-artwork"), example.name);
+    }
+    assert.deepEqual(
+      documentIcons.get("Example.docx"),
+      documentIcons.get("Example.DOCX"),
+    );
+    assert.equal(documentIcons.get("Example.docx").color, "rgb(37, 99, 235)");
     await screenshot(p, `file-badges-list-${width}`);
     await p.getByRole("button", { name: "切换视图 grid", exact: true }).click();
     assert.equal(
@@ -172,6 +263,7 @@ try {
         await dialog.locator("#preview-title").innerText(),
         item.name,
       );
+      await assertSameIcon(dialog.locator(".document-artwork"), item.name);
       if (item.id === "word") await screenshot(p, `details-${width}`);
       assert.equal(await dialog.locator("iframe").count(), 0);
       for (const label of ["名称", "类型", "大小", "上传时间"])
@@ -282,14 +374,43 @@ try {
       requests.filter((path) => path === "/api/shares/fixture-share").length,
       1,
     );
+    await p.goto(base + "/recent");
+    await p.locator(".document-artwork").first().waitFor();
+    for (const example of examples)
+      await assertSameIcon(
+        p
+          .locator(".file-item")
+          .filter({
+            has: p.getByRole("button", { name: example.name, exact: true }),
+          })
+          .locator(".document-artwork"),
+        example.name,
+      );
     await p.goto(base + "/trash");
     await p.locator(".data-row .document-badge").first().waitFor();
     assert.equal(
       await p.locator(".data-row .document-badge").count(),
       examples.length,
     );
+    for (const example of examples)
+      await assertSameIcon(
+        p
+          .locator(".data-row")
+          .filter({
+            has: p.locator("strong").getByText(example.name, { exact: true }),
+          })
+          .locator(".document-artwork"),
+        example.name,
+      );
     await p.goto(base + "/settings");
     await p.locator(".about-panel").waitFor();
+    const backup = p
+      .locator(".data-row")
+      .filter({ has: p.locator(".backup-name") });
+    await assertSameIcon(
+      backup.locator(".document-artwork"),
+      "Example.unrecognized",
+    );
     assert.match(await p.locator(".about-panel").innerText(), /v1\.0\.1/);
     assert.equal(await p.locator(".about-panel li").count(), 5);
     assert.match(
@@ -306,6 +427,39 @@ try {
       false,
     );
     await screenshot(p, `about-${width}`);
+    await c.close();
+  }
+  for (const width of [1280, 320]) {
+    const { c, p } = await context("media", "zh", width);
+    await p.goto(base + "/files/root");
+    await p.locator(".folder-artwork").waitFor();
+    assert.equal(
+      await p.locator(".folder-artwork").getAttribute("viewBox"),
+      "0 0 96 80",
+    );
+    assert.equal(
+      await p
+        .locator(".audio-artwork")
+        .evaluate((e) => getComputedStyle(e).color),
+      "rgb(255, 255, 255)",
+    );
+    assert.equal(await p.locator(".file-item.image .media-artwork").count(), 1);
+    assert.equal(await p.locator(".file-item.video .media-artwork").count(), 1);
+    await p.getByRole("button", { name: "切换视图 list", exact: true }).click();
+    const compactFolder = await p
+      .locator(".folder-artwork.is-compact")
+      .boundingBox();
+    assert.equal(compactFolder.width, 28);
+    assert.equal(compactFolder.height, 28);
+    for (const icon of ["image", "music", "video"])
+      assert.equal(
+        await p.locator(`.file-symbol svg[class*="lucide-${icon}"]`).count(),
+        1,
+      );
+    assert.equal(
+      await p.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
     await c.close();
   }
   for (const width of [1280, 320]) {
@@ -347,10 +501,10 @@ try {
       "Example.pdf",
     );
     assert.equal((await card.textContent()).split("Example.pdf").length - 1, 2);
-    assert.deepEqual(await card.locator(".document-badge").allTextContents(), [
-      "PDF",
-      "PDF",
-    ]);
+    assert.deepEqual(
+      await card.locator(".document-badge text").allTextContents(),
+      ["PDF", "PDF"],
+    );
     assert.equal(
       requests.some((path) => /\/(thumbnail|text|download)$/.test(path)),
       false,
@@ -360,6 +514,15 @@ try {
       await p.evaluate(() => document.documentElement.scrollWidth > innerWidth),
       false,
     );
+    for (const artwork of await card.locator(".document-artwork").all())
+      await assertSameIcon(artwork, "Example.pdf");
+    await p.goto(base + "/s/fixture-word");
+    await p.locator(".public-download-card").waitFor();
+    for (const artwork of await p
+      .locator(".public-download-card .document-artwork")
+      .all())
+      await assertSameIcon(artwork, "Example.docx");
+    await screenshot(p, `word-share-${width}`);
     await c.close();
   }
   for (const width of [1280, 320]) {
@@ -373,7 +536,9 @@ try {
         exact: true,
       })
       .waitFor();
-    await p.getByText("Your files, under your control", { exact: true }).waitFor();
+    await p
+      .getByText("Your files, under your control", { exact: true })
+      .waitFor();
     await screenshot(p, `login-${width}`);
     assert.deepEqual(
       await p.locator(".login-features li span").allTextContents(),
@@ -408,7 +573,7 @@ try {
   await unavailable.c.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS unified badges in grid/list/trash/details/share, bilingual about v1.0.1, preview/details, centered upload, download-only visitor, expiry/revoke and responsive English login",
+    "PASS identical document SVG/color in grid/list/recent/trash/details/share/transfers/backups and case-insensitive badges, bilingual about v1.0.1, preview/details, centered upload, download-only visitor, expiry/revoke and responsive English login",
   );
 } finally {
   await browser.close();

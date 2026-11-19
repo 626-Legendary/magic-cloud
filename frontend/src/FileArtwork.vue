@@ -1,9 +1,26 @@
 <script setup lang="ts">
-import { useId } from "vue";
-import { Music, AudioLines } from "lucide-vue-next";
-import { fileIcons } from "./file-icons";
-import type { FileKind } from "./file-kind";
-defineProps<{ kind: FileKind; extension: string; compact?: boolean }>();
+import { computed, useId, type Component } from "vue";
+import { Music, AudioLines, Image, Video } from "lucide-vue-next";
+import { fileKind, fileNameParts, type FileKind } from "./file-kind";
+import type { Node as FileNode } from "./api";
+const props = defineProps<{
+  node: Pick<FileNode, "kind" | "name">;
+  compact?: boolean;
+}>();
+const kind = computed(() => fileKind(props.node));
+const mediaIcons: Partial<Record<FileKind, Component>> = {
+  image: Image,
+  video: Video,
+  audio: Music,
+};
+const mediaIcon = computed(() => mediaIcons[kind.value]);
+const badge = computed(() =>
+  kind.value === "unknown"
+    ? "FILE"
+    : (fileNameParts(props.node).extension.slice(1) || "FILE")
+        .toUpperCase()
+        .slice(0, 8),
+);
 const gradientId = useId();
 </script>
 
@@ -11,7 +28,7 @@ const gradientId = useId();
   <svg
     v-if="kind === 'folder'"
     class="folder-artwork"
-    :class="{ 'is-compact': compact }"
+    :class="[kind, { 'is-compact': compact }]"
     viewBox="0 0 96 80"
     fill="none"
     aria-hidden="true"
@@ -46,8 +63,10 @@ const gradientId = useId();
     />
   </svg>
   <component
-    :is="fileIcons[kind]"
-    v-else-if="compact && ['audio', 'image', 'video'].includes(kind)"
+    :is="mediaIcon"
+    v-else-if="compact && mediaIcon"
+    :class="kind"
+    :style="{ color: `var(--file-${kind})` }"
     :size="24"
     aria-hidden="true"
   />
@@ -58,21 +77,52 @@ const gradientId = useId();
   <div
     v-else-if="['image', 'video'].includes(kind)"
     class="media-artwork"
+    :style="{ color: `var(--file-${kind})` }"
     aria-hidden="true"
   >
-    <component :is="fileIcons[kind]" :size="48" :stroke-width="2.2" />
+    <component :is="mediaIcon" :size="48" :stroke-width="2.2" />
   </div>
-  <div
+  <!-- Every document context renders this same vector; compact only changes its size. -->
+  <svg
     v-else
     class="document-artwork"
-    :class="{ 'is-compact': compact }"
+    :class="[kind, { 'is-compact': compact }]"
+    :style="{ color: `var(--file-${kind})` }"
+    viewBox="0 0 80 88"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="3.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
     aria-hidden="true"
   >
-    <component :is="fileIcons[kind]" :size="68" :stroke-width="1.8" />
-    <span class="document-badge">{{
-      kind === "unknown"
-        ? "FILE"
-        : (extension || "FILE").toUpperCase().slice(0, 8)
-    }}</span>
-  </div>
+    <path
+      d="M20 5h25l17 17v50a6 6 0 0 1-6 6H20a6 6 0 0 1-6-6V11a6 6 0 0 1 6-6Z"
+      fill="var(--surface)"
+    />
+    <path d="M45 5v13a4 4 0 0 0 4 4h13M25 35h15M25 46h25M25 57h15" />
+    <g class="document-badge">
+      <rect
+        x="23"
+        y="62"
+        width="54"
+        height="22"
+        rx="4"
+        fill="var(--surface)"
+        stroke-width="2"
+      />
+      <text
+        x="50"
+        y="73"
+        text-anchor="middle"
+        dominant-baseline="central"
+        fill="currentColor"
+        stroke="none"
+        :font-size="badge.length > 5 ? 9 : 14"
+        font-weight="600"
+      >
+        {{ badge }}
+      </text>
+    </g>
+  </svg>
 </template>
