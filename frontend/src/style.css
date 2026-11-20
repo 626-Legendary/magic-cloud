@@ -361,6 +361,7 @@ a {
   padding: var(--mc-space-2) var(--mc-space-4);
   color: #fff;
   font-size: var(--mc-font-caption);
+  text-decoration: none;
   position: absolute;
   bottom: 38px;
   left: 44px;
@@ -1286,15 +1287,32 @@ a {
 }
 .public-page {
   max-width: 1000px;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   margin: auto;
   padding: var(--mc-space-6);
 }
+.public-footer {
+  display: grid;
+  gap: var(--mc-space-1);
+  margin-top: auto;
+  padding-top: var(--mc-space-12);
+  color: var(--muted);
+  font-size: var(--mc-font-caption);
+  letter-spacing: 0.3px;
+  text-align: center;
+}
 .public-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--mc-space-12);
   gap: var(--mc-space-5);
+}
+.public-header > button {
+  justify-self: end;
 }
 .public-header > a {
   display: flex;
@@ -2540,6 +2558,7 @@ body:has(.upload-choice-dialog[open]) {
   margin: 0;
 }
 .public-download-card {
+  width: 100%;
   max-width: 720px;
   margin-inline: auto;
 }

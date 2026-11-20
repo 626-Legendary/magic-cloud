@@ -1330,6 +1330,10 @@ onUnmounted(() => {
       </template>
     </section>
     <div v-else-if="loading" class="empty"><span class="spinner"></span></div>
+    <footer class="public-footer">
+      <span>© {{ currentYear }} Zexiang Zhang. All rights reserved.</span>
+      <span>Magic Cloud v{{ appVersion }}</span>
+    </footer>
   </main>
   <main v-else-if="!authenticated" class="login-page">
     <div class="login-controls">
@@ -1372,9 +1376,9 @@ onUnmounted(() => {
         <p>{{ t("heroDescription") }}</p>
         <p class="hero-support">{{ t("heroSupport") }}</p>
       </div>
-      <div class="privacy-pill">
-        <ShieldHouse aria-hidden="true" :size="16" />{{ t("privateStorage") }}
-      </div>
+      <a class="privacy-pill" href="https://developers.cloudflare.com/tunnel/">
+        <ShieldHouse aria-hidden="true" :size="16" />Cloudflare Tunnel
+      </a>
     </section>
     <section class="login-form-wrap">
       <form class="login-form" @submit.prevent="signIn">
