@@ -83,6 +83,8 @@ onBeforeUnmount(() => {
     <div :class="{ 'video-thumbnail-frame': preview }">
       <img
         v-if="source"
+        draggable="false"
+        @dragstart.prevent
         :src="source"
         :alt="preview ? name : ''"
         @error="imageFailed"
@@ -126,6 +128,8 @@ onBeforeUnmount(() => {
   box-shadow: var(--mc-shadow-md);
 }
 .media-thumbnail img {
+  -webkit-user-drag: none;
+  user-select: none;
   position: static;
   display: block;
   border-radius: 8px;

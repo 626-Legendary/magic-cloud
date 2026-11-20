@@ -245,6 +245,7 @@ const {
   dragOver,
   dragLeave,
   reset: resetDrop,
+  acceptsFileDrop,
 } = useFileDropOverlay(
   () =>
     view.value === "files" &&
@@ -817,6 +818,39 @@ const mediaType = computed(() =>
 const previewUrl = computed(() =>
   preview.value ? `/api/nodes/${preview.value.id}/download?inline=true` : "",
 );
+let cardPress:
+  { pointerId: number; x: number; y: number; moved: boolean } | undefined;
+function startCardPress(event: PointerEvent) {
+  cardPress =
+    event.button === 0
+      ? {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          moved: false,
+        }
+      : undefined;
+}
+function moveCardPress(event: PointerEvent) {
+  if (
+    cardPress &&
+    event.pointerId === cardPress.pointerId &&
+    event.buttons & 1 &&
+    Math.hypot(event.clientX - cardPress.x, event.clientY - cardPress.y) > 6
+  )
+    cardPress.moved = true;
+}
+function leaveCardPress(event: PointerEvent) {
+  if (cardPress && event.pointerId === cardPress.pointerId && event.buttons & 1)
+    cardPress.moved = true;
+}
+function guardCardClick(event: MouseEvent) {
+  // Keyboard activation has detail=0 and must remain available after a drag.
+  if (event.detail > 0 && cardPress?.moved) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
 async function openNode(n: Node) {
   const trigger = dialogTrigger();
   menu.value = "";
@@ -916,8 +950,9 @@ async function uploadFiles(files: File[]) {
   }
 }
 async function dropped(event: DragEvent) {
+  const accepted = acceptsFileDrop(event);
   resetDrop();
-  if (view.value !== "files") return;
+  if (!accepted) return;
   const entries = Array.from(event.dataTransfer?.items || [])
     .map((x) => (x as any).webkitGetAsEntry?.())
     .filter(Boolean);
@@ -1702,6 +1737,13 @@ onUnmounted(() => {
               v-for="n in nodes"
               :key="n.id"
               class="file-item"
+              draggable="false"
+              @dragstart.prevent
+              @pointerdown="startCardPress"
+              @pointermove="moveCardPress"
+              @pointerleave="leaveCardPress"
+              @click.capture="guardCardClick"
+              @dblclick.capture="guardCardClick"
               :class="[kindClass(n), { 'is-selected': selectedIds.has(n.id) }]"
               @dblclick="openNode(n)"
               @contextmenu.prevent.stop="openFileMenu(n.id, $event)"

@@ -767,6 +767,8 @@ a {
   font-weight: 500;
 }
 .file-item {
+  -webkit-user-select: none;
+  user-select: none;
   position: relative;
   color: var(--text);
 }

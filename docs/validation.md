@@ -53,6 +53,8 @@ node tests/design-browser.mjs
 
 `tests/loading-drag-browser.mjs` 通过模拟 API 延迟检查加载页尺寸，并回归拖拽取消、移出、嵌套元素、窗口失焦、事件中断及黄色安全图标。只读运行，使用浏览器 CDP 与测试地址。
 
+`tests/internal-drag-browser.mjs` 通过实际鼠标按住并移动图片/列表行，检查无重复上传、原生拖影、文字选择及点击穿透，同时验证内部拖拽来源拦截和外部文件上传。API 全部使用模拟数据，不修改正式文件。
+
 ## 数据库结构
 
 项目使用 `backend/schema.sql` 这一份当前结构，不维护历史版本迁移链。独立测试存储中检查：

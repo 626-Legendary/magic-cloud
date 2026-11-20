@@ -3,15 +3,58 @@ import { onMounted, onUnmounted, ref, watch } from "vue";
 export function useFileDropOverlay(enabled: () => boolean) {
   const active = ref(false);
   let area: HTMLElement | undefined;
+  let internalDrag = false;
+  const internalType = "application/x-magic-cloud-internal-drag";
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let dropTimer: ReturnType<typeof setTimeout> | undefined;
   function reset() {
     clearTimeout(idleTimer);
     idleTimer = undefined;
     area = undefined;
     active.value = false;
   }
+  function cancel() {
+    clearTimeout(dropTimer);
+    dropTimer = undefined;
+    internalDrag = false;
+    reset();
+  }
+  function acceptsFileDrop(event: DragEvent) {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return (
+      enabled() &&
+      !internalDrag &&
+      types.includes("Files") &&
+      !types.includes(internalType)
+    );
+  }
+  function startInternalDrag(event: DragEvent) {
+    clearTimeout(dropTimer);
+    dropTimer = undefined;
+    internalDrag = true;
+    reset();
+    // Image drags can contain a File too. Keep their page origin on the payload.
+    try {
+      event.dataTransfer?.setData(internalType, "1");
+    } catch {
+      /* Some browser payloads are read-only. */
+    }
+    queueMicrotask(() => {
+      if (event.defaultPrevented) internalDrag = false;
+    });
+  }
+  function finishDrop() {
+    reset();
+    // Native event listeners can run microtasks between capture and target.
+    // Keep the origin guard for the entire drop event, not only capture.
+    clearTimeout(dropTimer);
+    dropTimer = setTimeout(() => {
+      internalDrag = false;
+      dropTimer = undefined;
+    }, 0);
+  }
   function dragOver(event: DragEvent) {
-    if (!enabled() || !event.dataTransfer?.types.includes("Files")) {
+    if (!acceptsFileDrop(event)) {
       reset();
       return;
     }
@@ -51,32 +94,34 @@ export function useFileDropOverlay(enabled: () => boolean) {
       reset();
   }
   function cancelKey(event: KeyboardEvent) {
-    if (event.key === "Escape") reset();
+    if (event.key === "Escape") cancel();
   }
   function hidden() {
-    if (document.hidden) reset();
+    if (document.hidden) cancel();
   }
   watch(enabled, (value) => {
-    if (!value) reset();
+    if (!value) cancel();
   });
   onMounted(() => {
+    window.addEventListener("dragstart", startInternalDrag, true);
     window.addEventListener("dragover", outsideDrag, true);
-    window.addEventListener("drop", reset, true);
-    window.addEventListener("dragend", reset, true);
-    window.addEventListener("blur", reset);
-    window.addEventListener("pointerdown", reset, true);
+    window.addEventListener("drop", finishDrop, true);
+    window.addEventListener("dragend", cancel, true);
+    window.addEventListener("blur", cancel);
+    window.addEventListener("pointerdown", cancel, true);
     window.addEventListener("keydown", cancelKey, true);
     document.addEventListener("visibilitychange", hidden);
   });
   onUnmounted(() => {
-    reset();
+    cancel();
+    window.removeEventListener("dragstart", startInternalDrag, true);
     window.removeEventListener("dragover", outsideDrag, true);
-    window.removeEventListener("drop", reset, true);
-    window.removeEventListener("dragend", reset, true);
-    window.removeEventListener("blur", reset);
-    window.removeEventListener("pointerdown", reset, true);
+    window.removeEventListener("drop", finishDrop, true);
+    window.removeEventListener("dragend", cancel, true);
+    window.removeEventListener("blur", cancel);
+    window.removeEventListener("pointerdown", cancel, true);
     window.removeEventListener("keydown", cancelKey, true);
     document.removeEventListener("visibilitychange", hidden);
   });
-  return { active, dragOver, dragLeave, reset };
+  return { active, dragOver, dragLeave, reset, acceptsFileDrop };
 }
