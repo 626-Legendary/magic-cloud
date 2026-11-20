@@ -1795,7 +1795,6 @@ onUnmounted(() => {
                   :aria-controls="`file-menu-${n.id}`"
                   @click.stop="openFileMenu(n.id, $event)"
                   @keydown.down.prevent.stop="openFileMenu(n.id, $event)"
-                  :data-tooltip="t('fileActions') + ' ' + n.name"
                 >
                   <MoreHorizontal aria-hidden="true" :size="20" />
                 </button>
